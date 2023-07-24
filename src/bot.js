@@ -237,7 +237,7 @@ async function handleMessage(message) {
 
 		clearInterval(typingInterval);
 
-		const responseText = response.map(e => e.response).filter(e => e != null).join("");
+		const responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
