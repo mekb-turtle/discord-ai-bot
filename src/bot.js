@@ -107,6 +107,12 @@ setInterval(async () => {
 const model = "discordbot";
 
 async function createModel() {
+	try {
+		await makeRequest("/api/delete", "delete", {
+			name: model
+		});
+	} catch (err) {}
+
 	const { fd, path, cleanup } = await tmp.file({ prefix: "Modelfile" });
 	const writeStream = fs.createWriteStream(null, { fd });
 
