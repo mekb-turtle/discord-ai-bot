@@ -49,6 +49,7 @@ process.on("message", data => {
 const client = new Client({ intents: [
 	GatewayIntentBits.Guilds,
 	GatewayIntentBits.GuildMessages,
+	GatewayIntentBits.GuildMembers,
 	GatewayIntentBits.MessageContent
 ], allowedMentions: { users: [], roles: [], repliedUser: false } });
 
@@ -65,16 +66,25 @@ function getSystemMessage() {
 	return `
 The current date and time is ${new Date().toUTCString()}.
 
+Your username is ${client.user.username}
+
 Basic markdown is supported.
-Bold is done by surrounding text in two asterisks, e.g **bold text here**. Italics is done by surrounding text in one underline, e.g _italics text here_. Underline is done by surrounding text in two underlines, e.g __underlined text here__. Strikethrough is done by surrounding text in two tildes, e.g ~~strikethrough text here~~. Spoiler text is done by surrounding text in two pipes, e.g ||spoilered text here||.
-Block quotes are supported by starting the line with > followed by a space, e.g > Hello.
+Bold: **bold text here**
+Italics: _italic text here_
+Underlined: __underlined text here__
+Strikethrough: ~~strikethrough text here~~
+Spoiler: ||spoiler text here||
+Block quotes: Start the line with a > followed by a space, e.g
+> Hello there
+
 Inline code blocks are supported by surrounding text in backticks, e.g ${"`"}print("Hello");${"`"}, block code is supported by surrounding text in three backticks, e.g ${"```"}print("Hello");${"```"}.
-Headers are supported by starting the line with #, ##, or ### followed by a space, e.g # Header. # provides the largest text, and ### provides the smallest text.
 Surround code that is produced in code blocks. Use a code block with three backticks if the code has multiple lines, otherwise use an inline code block with one backtick.
+
 Lists are supported by starting the line with a dash followed by a space, e.g - List
 Numbered lists are supported by starting the line with a number followed by a dot and a space, e.g 1. List.
 Images, links, tables, LaTeX, and anything else is not supported.
-If you need to use the symbols |, _, *, ~, @, #, :, put a backslash before them.
+
+If you need to use the symbols >, |, _, *, ~, @, #, :, ${"`"}, put a backslash before them to escape them.
 `.trim();
 }
 
@@ -151,16 +161,16 @@ async function handleMessage(message) {
 	try {
 		await message.fetch();
 
-		if (!message.guild) return;
-
-		// return if not in the right channel, a bot, or non-default message
+		// return if not in the right channel
 		const channelID = message.channel.id;
-		if (!channels.includes(channelID)) return;
+		if (message.guild && !channels.includes(channelID)) return;
 
+		// return if user is a bot, or non-default message
 		if (!message.author.id) return;
 		if (message.author.bot) return;
 
-		const myMention = new RegExp(`<@!?${client.user.id}>`, "g");
+		const botRole = message.guild?.members?.me?.roles?.botRole;
+		const myMention = new RegExp(`<@((!?${client.user.id}${botRole?`)|(&${botRole.id}`:""}))>`, "g");
 
 		if (typeof message.content != "string" || message.content.length == 0) {
 			return;
@@ -173,11 +183,35 @@ async function handleMessage(message) {
 			if (message.author.id != client.user.id) return;
 			context = messagesIDMapped[channelID][message.id];
 			if (!context) context = null;
-		} else if (message.type != MessageType.Default || !message.content.match(myMention)) {
+		} else if (message.type != MessageType.Default || (message.guild && !message.content.match(myMention))) {
 			return;
 		}
 
-		const userInput = message.content.replace(myMention, "").trim();
+		if (message.guild) {
+			await message.guild.channels.fetch();
+			await message.guild.members.fetch();
+		}
+		const userInput = `${message.content
+			.replace(myMention, "")
+			.replace(/\<#([0-9]+)\>/g, (_, id) => {
+				if (message.guild) {
+					const chn = message.guild.channels.cache.get(id);
+					if (chn) return `#${chn.name}`;
+				}
+				return "#unknown-channel";
+			})
+			.replace(/\<@!?([0-9]+)\>/g, (_, id) => {
+				if (id == message.author.id) return message.author.username;
+				if (message.guild) {
+					const mem = message.guild.members .cache.get(id);
+					if (mem) return `@${mem.user.username}`;
+				}
+				return "@unknown-user";
+			})
+			.replace(/\<\:([a-zA-Z0-9_]+)\:([0-9]+)\>/g, (_, name) => {
+				return `emoji:${name}:`;
+			})
+			.trim()}`;
 
 		if (userInput == ".reset") {
 			if (!messages[channelID]) return;
@@ -242,7 +276,12 @@ async function handleMessage(message) {
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
 		// reply (will automatically stop typing)
-		const replyMessage = await message.reply({ content: responseText });
+		const systemMessage = messages[channelID].length == 0
+			? `This is the beginning of the conversation, type "${message.guild ? `@${client.user.username} ` : ""}.clear" to clear the conversation`
+			+ (message.guild ? `You can also DM me to talk to me` : "")
+			: null;
+		const content = `${systemMessage ? `${systemMessage}\n\n` : ""}${responseText}`;
+		const replyMessage = await message.reply({ content });
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
