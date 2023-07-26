@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, MessageType, PermissionsBitField } from "discord.js";
+import { Client, Events, GatewayIntentBits, MessageType, PermissionsBitField, Partials } from "discord.js";
 import { Logger, LogLevel } from "meklog";
 import fs from "node:fs";
 import dotenv from "dotenv";
@@ -46,12 +46,19 @@ process.on("message", data => {
 	if (data.logger) log = new Logger(data.logger);
 });
 
-const client = new Client({ intents: [
-	GatewayIntentBits.Guilds,
-	GatewayIntentBits.GuildMessages,
-	GatewayIntentBits.GuildMembers,
-	GatewayIntentBits.MessageContent
-], allowedMentions: { users: [], roles: [], repliedUser: false } });
+const client = new Client({
+	intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.GuildMembers,
+		GatewayIntentBits.DirectMessages,
+		GatewayIntentBits.MessageContent
+	],
+	allowedMentions: { users: [], roles: [], repliedUser: false },
+	partials: [
+		Partials.Channel
+	]
+});
 
 client.once(Events.ClientReady, async () => {
 	await client.guilds.fetch();
@@ -65,8 +72,6 @@ function getSystemMessage() {
 	// feel free to change
 	return `
 The current date and time is ${new Date().toUTCString()}.
-
-Your username is ${client.user.username}
 
 Basic markdown is supported.
 Bold: **bold text here**
@@ -236,8 +241,14 @@ async function handleMessage(message) {
 		// start typing
 		typing = true;
 		await message.channel.sendTyping();
-		const typingInterval = setInterval(async () => {
-			await message.channel.sendTyping();
+		let typingInterval = setInterval(async () => {
+			try {
+				await message.channel.sendTyping();
+			} catch (err) {
+				if (typingInterval != null)
+					clearInterval(typingInterval);
+				typingInterval = null;
+			}
 		}, 7000);
 
 		if (!initModel) {
@@ -246,7 +257,7 @@ async function handleMessage(message) {
 		}
 
 		// add user's message to conversation
-		log(LogLevel.Debug, `#${message.channel.name} - ${message.author.username}: ${userInput}`);
+		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : `DMs`} - ${message.author.username}: ${userInput}`);
 
 		// context
 		const messagesLength = messages[channelID].length;
@@ -265,11 +276,15 @@ async function handleMessage(message) {
 				return JSON.parse(e);
 			});
 		} catch (err) {
-			clearInterval(typingInterval);
+			if (typingInterval != null)
+				clearInterval(typingInterval);
+			typingInterval = null;
 			throw err;
 		}
 
-		clearInterval(typingInterval);
+		if (typingInterval != null)
+			clearInterval(typingInterval);
+		typingInterval = null;
 
 		const responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
 
@@ -277,8 +292,8 @@ async function handleMessage(message) {
 
 		// reply (will automatically stop typing)
 		const systemMessage = messages[channelID].length == 0
-			? `This is the beginning of the conversation, type "${message.guild ? `@${client.user.username} ` : ""}.clear" to clear the conversation`
-			+ (message.guild ? `You can also DM me to talk to me` : "")
+			? `This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation`
+			+ (message.guild ? `\nYou can also DM me to talk to me` : "")
 			: null;
 		const content = `${systemMessage ? `${systemMessage}\n\n` : ""}${responseText}`;
 		const replyMessage = await message.reply({ content });
