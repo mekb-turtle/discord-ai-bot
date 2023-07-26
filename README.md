@@ -11,7 +11,9 @@
 3. Pull (download) a model, e.g `ollama pull orca` or `ollama pull llama2`
 4. Start Ollama by running `ollama serve`
 5. [Create a Discord bot](https://discord.com/developers/applications)
-    - Under Application » Bot, make sure Message Content Intent is enabled
+    - Under Application » Bot
+        - Enable Message Content Intent
+        - Enable Server Members Intent (for replacing user mentions with the username)
 6. Invite the bot to a server
     1. Go to Application » OAuth2 » URL Generator
     2. Enable `bot`
