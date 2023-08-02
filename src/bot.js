@@ -218,7 +218,7 @@ async function handleMessage(message) {
 			})
 			.trim()}`;
 
-		if (userInput == ".reset") {
+		if (userInput == ".reset" || userInput == ".clear") {
 			if (!messages[channelID]) return;
 
 			// reset conversation
