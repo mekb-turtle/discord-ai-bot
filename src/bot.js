@@ -238,6 +238,9 @@ async function handleMessage(message) {
 			messagesIDMapped[channelID] = {};
 		}
 
+		// log user's message
+		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : `DMs`} - ${message.author.username}: ${userInput}`);
+
 		// start typing
 		typing = true;
 		await message.channel.sendTyping();
@@ -255,9 +258,6 @@ async function handleMessage(message) {
 			await createModel();
 			initModel = false;
 		}
-
-		// add user's message to conversation
-		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : `DMs`} - ${message.author.username}: ${userInput}`);
 
 		// context
 		const messagesLength = messages[channelID].length;
@@ -291,12 +291,13 @@ async function handleMessage(message) {
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
 		// reply (will automatically stop typing)
-		const systemMessage = messages[channelID].length == 0
-			? `This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation`
-			+ (message.guild ? `\nYou can also DM me to talk to me` : "")
-			: null;
-		const content = `${systemMessage ? `${systemMessage}\n\n` : ""}${responseText}`;
-		const replyMessage = await message.reply({ content });
+		const reply = { content: responseText, embeds: [] };
+		if (messages[channelID].length == 0) {
+			reply.content =
+				`This is the beginning of the conversation, type "${message.guild ? `@${client.user.username} ` : ""}.clear" to clear the conversation\n`
+				+ reply.content;
+		}
+		const replyMessage = await message.reply(reply);
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
