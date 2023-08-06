@@ -69,9 +69,10 @@ const messages = {};
 
 // split text
 function splitText(str, length) {
+	// trim matches different characters to \s
 	str = str
 		.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-		.replace(/^\s+|\s+$/g, ""); // trim matches different characters to \s
+		.replace(/^\s+|\s+$/g, "");
 	const segments = [];
 	let segment = "";
 	let word, suffix;
@@ -235,9 +236,9 @@ async function handleMessage(message) {
 		if (message.type == MessageType.Reply) {
 			const reply = await message.fetchReference();
 			if (!reply) return;
-			if (message.author.id != client.user.id) return;
+			if (reply.author.id != client.user.id) return;
 			if (messages[channelID] == null) return;
-			if ((context = messages[channelID][message.id]) == null) return;
+			if ((context = messages[channelID][reply.id]) == null) return;
 		} else if (message.type != MessageType.Default || (message.guild && !message.content.match(myMention))) {
 			return;
 		}
@@ -258,7 +259,7 @@ async function handleMessage(message) {
 			.replace(/\<@!?([0-9]+)\>/g, (_, id) => {
 				if (id == message.author.id) return message.author.username;
 				if (message.guild) {
-					const mem = message.guild.members .cache.get(id);
+					const mem = message.guild.members.cache.get(id);
 					if (mem) return `@${mem.user.username}`;
 				}
 				return "@unknown-user";
@@ -311,7 +312,7 @@ async function handleMessage(message) {
 
 			// context
 			if (context == null) {
-				context = messages[channelID].last?.context;
+				context = messages[channelID].last;
 			}
 
 			// make request to model
