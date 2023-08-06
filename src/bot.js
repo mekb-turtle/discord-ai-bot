@@ -92,9 +92,9 @@ function splitText(str, length) {
 			// prioritise splitting by newlines over other whitespaces
 			if (segment.includes("\n")) {
 				// append up all but last paragraph
-				let beforeParagraph = segment.match(/^.*\n/s);
+				const beforeParagraph = segment.match(/^.*\n/s);
 				if (beforeParagraph != null) {
-					let lastParagraph = segment.substring(beforeParagraph[0].length, segment.length);
+					const lastParagraph = segment.substring(beforeParagraph[0].length, segment.length);
 					segment = beforeParagraph[0];
 					appendSegment();
 					segment = lastParagraph;
@@ -177,7 +177,7 @@ async function createModel() {
 		await makeRequest("/api/delete", "delete", {
 			name: model
 		});
-	} catch (err) {}
+	} catch (error) {}
 
 	const { fd, path, cleanup } = await tmp.file({ prefix: "Modelfile" });
 	const writeStream = fs.createWriteStream(null, { fd });
@@ -195,10 +195,10 @@ ${getSystemMessage().replace(/"""/g, "\" \" \"")}
 	writeStream.end();
 	try {
 		await finishPromise;
-	} catch (err) {
+	} catch (error) {
 		writeStream.close();
 		await cleanup();
-		throw err;
+		throw error;
 	}
 	writeStream.close();
 
@@ -226,7 +226,7 @@ async function handleMessage(message) {
 		if (message.author.bot) return;
 
 		const botRole = message.guild?.members?.me?.roles?.botRole;
-		const myMention = new RegExp(`<@((!?${client.user.id}${botRole?`)|(&${botRole.id}`:""}))>`, "g");
+		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g");
 
 		if (typeof message.content != "string" || message.content.length == 0) {
 			return;
@@ -249,14 +249,14 @@ async function handleMessage(message) {
 		}
 		const userInput = `${message.content
 			.replace(myMention, "")
-			.replace(/\<#([0-9]+)\>/g, (_, id) => {
+			.replace(/<#([0-9]+)>/g, (_, id) => {
 				if (message.guild) {
 					const chn = message.guild.channels.cache.get(id);
 					if (chn) return `#${chn.name}`;
 				}
 				return "#unknown-channel";
 			})
-			.replace(/\<@!?([0-9]+)\>/g, (_, id) => {
+			.replace(/<@!?([0-9]+)>/g, (_, id) => {
 				if (id == message.author.id) return message.author.username;
 				if (message.guild) {
 					const mem = message.guild.members.cache.get(id);
@@ -264,7 +264,7 @@ async function handleMessage(message) {
 				}
 				return "@unknown-user";
 			})
-			.replace(/\<\:([a-zA-Z0-9_]+)\:([0-9]+)\>/g, (_, name) => {
+			.replace(/<:([a-zA-Z0-9_]+):([0-9]+)>/g, (_, name) => {
 				return `emoji:${name}:`;
 			})
 			.trim()}`;
@@ -288,7 +288,7 @@ async function handleMessage(message) {
 		}
 
 		// log user's message
-		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : `DMs`} - ${message.author.username}: ${userInput}`);
+		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : "DMs"} - ${message.author.username}: ${userInput}`);
 
 		// start typing
 		typing = true;
@@ -296,9 +296,10 @@ async function handleMessage(message) {
 		let typingInterval = setInterval(async () => {
 			try {
 				await message.channel.sendTyping();
-			} catch (err) {
-				if (typingInterval != null)
+			} catch (error) {
+				if (typingInterval != null) {
 					clearInterval(typingInterval);
+				}
 				typingInterval = null;
 			}
 		}, 7000);
@@ -323,15 +324,17 @@ async function handleMessage(message) {
 			})).split("\n").filter(e => !!e).map(e => {
 				return JSON.parse(e);
 			});
-		} catch (err) {
-			if (typingInterval != null)
+		} catch (error) {
+			if (typingInterval != null) {
 				clearInterval(typingInterval);
+			}
 			typingInterval = null;
-			throw err;
+			throw error;
 		}
 
-		if (typingInterval != null)
+		if (typingInterval != null) {
 			clearInterval(typingInterval);
+		}
 		typingInterval = null;
 
 		const responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
