@@ -66,7 +66,57 @@ client.once(Events.ClientReady, async () => {
 });
 
 const messages = {};
-const messagesIDMapped = {};
+
+// split text
+function splitText(str, length) {
+	str = str
+		.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+		.replace(/^\s+|\s+$/g, ""); // trim matches different characters to \s
+	const segments = [];
+	let segment = "";
+	let word, suffix;
+	function appendSegment() {
+		segment = segment.replace(/^\s+|\s+$/g, "");
+		if (segment.length > 0) {
+			segments.push(segment);
+			segment = "";
+		}
+	}
+	// match a word
+	while ((word = str.match(/^[^\s]*(?:\s+|$)/)) != null) {
+		suffix = "";
+		word = word[0];
+		if (word.length == 0) break;
+		if (segment.length + word.length > length) {
+			// prioritise splitting by newlines over other whitespaces
+			if (segment.includes("\n")) {
+				// append up all but last paragraph
+				let beforeParagraph = segment.match(/^.*\n/s);
+				if (beforeParagraph != null) {
+					let lastParagraph = segment.substring(beforeParagraph[0].length, segment.length);
+					segment = beforeParagraph[0];
+					appendSegment();
+					segment = lastParagraph;
+					continue;
+				}
+			}
+			appendSegment();
+			// if word is larger than the split length
+			if (word.length > length) {
+				word = word.substring(0, length);
+				if (length > 1 && word.match(/^[^\s]+$/)) {
+					// try to hyphenate word
+					word = word.substring(0, word.length - 1);
+					suffix = "-";
+				}
+			}
+		}
+		str = str.substring(word.length, str.length);
+		segment += word + suffix;
+	}
+	appendSegment();
+	return segments;
+}
 
 function getSystemMessage() {
 	// feel free to change
@@ -186,8 +236,8 @@ async function handleMessage(message) {
 			const reply = await message.fetchReference();
 			if (!reply) return;
 			if (message.author.id != client.user.id) return;
-			context = messagesIDMapped[channelID][message.id];
-			if (!context) context = null;
+			if (messages[channelID] == null) return;
+			if ((context = messages[channelID][message.id]) == null) return;
 		} else if (message.type != MessageType.Default || (message.guild && !message.content.match(myMention))) {
 			return;
 		}
@@ -219,23 +269,21 @@ async function handleMessage(message) {
 			.trim()}`;
 
 		if (userInput == ".reset" || userInput == ".clear") {
-			if (!messages[channelID]) return;
+			if (messages[channelID] == null) return;
 
 			// reset conversation
-			const cleared = messages[channelID].length;
+			const cleared = messages[channelID].amount;
 
 			// clear
 			delete messages[channelID];
-			delete messagesIDMapped[channelID];
 
 			await message.reply({ content: `${emoji(emojis?.yes, message)} Cleared conversation of ${cleared} messages` });
 			return;
 		}
 
 		// create conversation
-		if (!messages[channelID]) {
-			messages[channelID] = [];
-			messagesIDMapped[channelID] = {};
+		if (messages[channelID] == null) {
+			messages[channelID] = { amount: 0, last: null };
 		}
 
 		// log user's message
@@ -254,19 +302,18 @@ async function handleMessage(message) {
 			}
 		}, 7000);
 
-		if (!initModel) {
-			await createModel();
-			initModel = false;
-		}
-
-		// context
-		const messagesLength = messages[channelID].length;
-		if (messagesLength > 0 && context == null) {
-			context = messages[channelID][messagesLength - 1].context;
-		}
-
 		let response;
 		try {
+			if (!initModel) {
+				await createModel();
+				initModel = false;
+			}
+
+			// context
+			if (context == null) {
+				context = messages[channelID].last?.context;
+			}
+
 			// make request to model
 			response = (await makeRequest("/api/generate", "post", {
 				model,
@@ -290,23 +337,34 @@ async function handleMessage(message) {
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
+		const prefix = messages[channelID].amount == 0 ?
+			`This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n` : "";
+
 		// reply (will automatically stop typing)
-		const reply = { content: responseText, embeds: [] };
-		if (messages[channelID].length == 0) {
-			reply.content =
-				`This is the beginning of the conversation, type "${message.guild ? `@${client.user.username} ` : ""}.clear" to clear the conversation\n`
-				+ reply.content;
+		const responseMessages = splitText(`${prefix}${responseText}`, 2000).map(content => ({ content, embeds: [] }));
+
+		const replyMessages = [];
+		for (let i = 0; i < responseMessages.length; ++i) {
+			if (i == 0) {
+				replyMessages.push(await message.reply(responseMessages[i]));
+			} else {
+				replyMessages.push(await message.channel.send(responseMessages[i]));
+			}
 		}
-		const replyMessage = await message.reply(reply);
+		const replyMessageIDs = replyMessages.map(msg => msg.id);
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
-		messages[channelID].push({ messageID: replyMessage.id, context });
-		messagesIDMapped[channelID][replyMessage.id] = context;
+		for (let i = 0; i < replyMessageIDs.length; ++i) {
+			messages[channelID][replyMessageIDs[i]] = context;
+		}
+		messages[channelID].last = context;
 	} catch (error) {
 		if (typing) {
-			// return error
-			await message.reply({ content: `${emoji(emojis?.no, message)} Error` });
+			try {
+				// return error
+				await message.reply({ content: `${emoji(emojis?.no, message)} Error` });
+			} catch (ignored) {}
 		}
 		throw error;
 	}
