@@ -26,4 +26,5 @@
     - Set the channels to the channel ID, comma separated
         1. In Discord, go to User Settings » Advanced, and enable Developer Mode
         2. Right click on a channel you want to use, and click Copy Channel ID
+    - You can edit the system message the bot uses, or disable it entirely
 8. Start the bot with `npm start`

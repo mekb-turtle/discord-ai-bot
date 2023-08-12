@@ -119,30 +119,12 @@ function splitText(str, length) {
 	return segments;
 }
 
-function getSystemMessage() {
-	// feel free to change
-	return `
-The current date and time is ${new Date().toUTCString()}.
+const systemMessage = typeof process.env.SYSTEM === "string" ?
+	process.env.SYSTEM.split(/[\r\n]+/g).map(e => JSON.parse(`"${e}"`)).join("\n")
+		.replace(/\<date\>/gi, new Date().toUTCString()) : null;
+const useSystemMessage = !!process.env.USE_SYSTEM && process.env.USE_SYSTEM != "false" && process.env.USE_SYSTEM != "0";
 
-Basic markdown is supported.
-Bold: **bold text here**
-Italics: _italic text here_
-Underlined: __underlined text here__
-Strikethrough: ~~strikethrough text here~~
-Spoiler: ||spoiler text here||
-Block quotes: Start the line with a > followed by a space, e.g
-> Hello there
-
-Inline code blocks are supported by surrounding text in backticks, e.g ${"`"}print("Hello");${"`"}, block code is supported by surrounding text in three backticks, e.g ${"```"}print("Hello");${"```"}.
-Surround code that is produced in code blocks. Use a code block with three backticks if the code has multiple lines, otherwise use an inline code block with one backtick.
-
-Lists are supported by starting the line with a dash followed by a space, e.g - List
-Numbered lists are supported by starting the line with a number followed by a dot and a space, e.g 1. List.
-Images, links, tables, LaTeX, and anything else is not supported.
-
-If you need to use the symbols >, |, _, *, ~, @, #, :, ${"`"}, put a backslash before them to escape them.
-`.trim();
-}
+console.log(systemMessage, useSystemMessage);
 
 let handlingMessage = false;
 const messageQueue = [];
@@ -189,7 +171,7 @@ async function createModel() {
 	writeStream.write(`
 FROM ${originalModel}
 SYSTEM """
-${getSystemMessage().replace(/"""/g, "\" \" \"")}
+${systemMessage.replace(/"""/g, "\" \" \"")}
 """
 		`);
 	writeStream.end();
@@ -307,7 +289,9 @@ async function handleMessage(message) {
 		let response;
 		try {
 			if (!initModel) {
-				await createModel();
+				if (useSystemMessage) {
+					await createModel();
+				}
 				initModel = false;
 			}
 
@@ -318,7 +302,7 @@ async function handleMessage(message) {
 
 			// make request to model
 			response = (await makeRequest("/api/generate", "post", {
-				model,
+				model: useSystemMessage ? model : originalModel,
 				prompt: userInput,
 				context
 			})).split("\n").filter(e => !!e).map(e => {
