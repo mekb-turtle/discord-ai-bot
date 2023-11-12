@@ -261,12 +261,12 @@ async function handleMessage(message) {
 				// only use system message on first message
 				const systemMessages = [];
 
-				if (useUserSystemMessage) {
-					systemMessages.push(userSystemMessage);
-				}
-
 				if (useModelSystemMessage) {
 					systemMessages.push(modelInfo.system);
+				}
+
+				if (useUserSystemMessage) {
+					systemMessages.push(userSystemMessage);
 				}
 
 				// join them together

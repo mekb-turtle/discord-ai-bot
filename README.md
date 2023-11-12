@@ -28,3 +28,4 @@
         2. Right click on a channel you want to use, and click Copy Channel ID
     - You can edit the system message the bot uses, or disable it entirely
 8. Start the bot with `npm start`
+9. You can interact with the bot by @mentioning it with your message
