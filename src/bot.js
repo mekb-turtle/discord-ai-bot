@@ -1,35 +1,16 @@
-import { Client, Events, GatewayIntentBits, MessageType, PermissionsBitField, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, MessageType, Partials } from "discord.js";
 import { Logger, LogLevel } from "meklog";
-import fs from "node:fs";
 import dotenv from "dotenv";
 import axios from "axios";
-import tmp from "tmp-promise";
 
 dotenv.config();
 
-const originalModel = process.env.MODEL;
+const model = process.env.MODEL;
 const ollamaURL = new URL(process.env.OLLAMA);
 const channels = process.env.CHANNELS.split(",");
 
-const emojis = {
-	// Replace with your own emojis, remove if you don't want to use emojis
-	no: "<:no:1117767793157345301>",
-	yes: "<:yes:1117767791089561691>"
-};
-
-function emoji(e, message) {
-	if (typeof e == "string" && e.length > 0) {
-		let guild = message;
-		if (message.member?.guild) guild = guild.member?.guild;
-		else if (guild.guild) guild = guild.guild;
-		if (!guild.members) return e;
-		if (!guild.members.me) return e;
-		if (guild.members.me.permissionsIn(message.channel).has(PermissionsBitField.Flags.UseExternalEmojis)) return e;
-	}
-	return "";
-}
-
 async function makeRequest(path, method, data) {
+	// make a request to ollama
 	const url = new URL(ollamaURL);
 	if (path.startsWith("/")) path = path.substring(1);
 	if (!url.pathname.endsWith("/")) url.pathname += "/";
@@ -67,7 +48,7 @@ client.once(Events.ClientReady, async () => {
 
 const messages = {};
 
-// split text
+// split text so it fits in a Discord message
 function splitText(str, length) {
 	// trim matches different characters to \s
 	str = str
@@ -119,12 +100,23 @@ function splitText(str, length) {
 	return segments;
 }
 
-const systemMessage = typeof process.env.SYSTEM === "string" ?
-	process.env.SYSTEM.split(/[\r\n]+/g).map(e => JSON.parse(`"${e}"`)).join("\n")
-		.replace(/\<date\>/gi, new Date().toUTCString()) : null;
-const useSystemMessage = !!process.env.USE_SYSTEM && process.env.USE_SYSTEM != "false" && process.env.USE_SYSTEM != "0";
+function getBoolean(str) {
+	return !!str && str != "false" && str != "0";
+}
 
-console.log(systemMessage, useSystemMessage);
+function parseJSONMessage(str) {
+	return str.split(/[\r\n]+/g).map(function(line) {
+		const result = JSON.parse(`"${line}"`);
+		if (typeof result !== "string") throw new "Invalid syntax in .env file";
+		return result;
+	}).join("\n");
+}
+
+const userSystemMessage = typeof process.env.SYSTEM === "string" ?
+	parseJSONMessage(process.env.SYSTEM).replace(/<date>/gi, new Date().toUTCString()) : null;
+const useUserSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!userSystemMessage;
+const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
+let modelInfo = null;
 
 let handlingMessage = false;
 const messageQueue = [];
@@ -152,48 +144,6 @@ setInterval(async () => {
 	handlingMessage = false;
 }, 10);
 
-const model = "discordbot";
-
-async function createModel() {
-	try {
-		await makeRequest("/api/delete", "delete", {
-			name: model
-		});
-	} catch (error) {}
-
-	const { fd, path, cleanup } = await tmp.file({ prefix: "Modelfile" });
-	const writeStream = fs.createWriteStream(null, { fd });
-
-	const finishPromise = new Promise((resolve, reject) => {
-		writeStream.once("finish", resolve);
-		writeStream.once("error", reject);
-	});
-	writeStream.write(`
-FROM ${originalModel}
-SYSTEM """
-${systemMessage.replace(/"""/g, "\" \" \"")}
-"""
-		`);
-	writeStream.end();
-	try {
-		await finishPromise;
-	} catch (error) {
-		writeStream.close();
-		await cleanup();
-		throw error;
-	}
-	writeStream.close();
-
-	const response = await makeRequest("/api/create", "post", {
-		name: model,
-		path
-	});
-	if (response.status?.startsWith?.("failed to open file")) throw response.status;
-	await cleanup();
-}
-
-let initModel = false;
-
 async function handleMessage(message) {
 	let typing = false;
 	try {
@@ -210,7 +160,7 @@ async function handleMessage(message) {
 		const botRole = message.guild?.members?.me?.roles?.botRole;
 		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g");
 
-		if (typeof message.content != "string" || message.content.length == 0) {
+		if (typeof message.content !== "string" || message.content.length == 0) {
 			return;
 		}
 
@@ -229,7 +179,7 @@ async function handleMessage(message) {
 			await message.guild.channels.fetch();
 			await message.guild.members.fetch();
 		}
-		const userInput = `${message.content
+		const userInput = message.content
 			.replace(myMention, "")
 			.replace(/<#([0-9]+)>/g, (_, id) => {
 				if (message.guild) {
@@ -249,7 +199,7 @@ async function handleMessage(message) {
 			.replace(/<:([a-zA-Z0-9_]+):([0-9]+)>/g, (_, name) => {
 				return `emoji:${name}:`;
 			})
-			.trim()}`;
+			.trim();
 
 		if (userInput == ".reset" || userInput == ".clear") {
 			if (messages[channelID] == null) return;
@@ -260,9 +210,13 @@ async function handleMessage(message) {
 			// clear
 			delete messages[channelID];
 
-			await message.reply({ content: `${emoji(emojis?.yes, message)} Cleared conversation of ${cleared} messages` });
+			if (cleared > 0) {
+				await message.reply({ content: `Cleared conversation of ${cleared} messages` });
+			}
 			return;
 		}
+
+		if (userInput.length == 0) return;
 
 		// create conversation
 		if (messages[channelID] == null) {
@@ -288,11 +242,13 @@ async function handleMessage(message) {
 
 		let response;
 		try {
-			if (!initModel) {
-				if (useSystemMessage) {
-					await createModel();
-				}
-				initModel = false;
+			// fetch info about the model like the template and system message
+			if (modelInfo == null) {
+				modelInfo = (await makeRequest("/api/show", "post", {
+					name: model
+				}));
+				if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
+				if (typeof modelInfo !== "object") throw "failed to fetch model information";
 			}
 
 			// context
@@ -300,12 +256,32 @@ async function handleMessage(message) {
 				context = messages[channelID].last;
 			}
 
+			let systemMessage = null;
+			if (!context) {
+				// only use system message on first message
+				const systemMessages = [];
+
+				if (useUserSystemMessage) {
+					systemMessages.push(userSystemMessage);
+				}
+
+				if (useModelSystemMessage) {
+					systemMessages.push(modelInfo.system);
+				}
+
+				// join them together
+				systemMessage = systemMessages.join("\n\n");
+			}
+
 			// make request to model
 			response = (await makeRequest("/api/generate", "post", {
-				model: useSystemMessage ? model : originalModel,
+				model: model,
 				prompt: userInput,
-				context
-			})).split("\n").filter(e => !!e).map(e => {
+				system: systemMessage,
+				context,
+			}));
+			console.log(response);
+			response = response.split("\n").filter(e => !!e).map(e => {
 				return JSON.parse(e);
 			});
 		} catch (error) {
@@ -326,7 +302,7 @@ async function handleMessage(message) {
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
 		const prefix = messages[channelID].amount == 0 ?
-			`This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n` : "";
+			`> This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n\n` : "";
 
 		// reply (will automatically stop typing)
 		const responseMessages = splitText(`${prefix}${responseText}`, 2000).map(content => ({ content, embeds: [] }));
@@ -351,7 +327,7 @@ async function handleMessage(message) {
 		if (typing) {
 			try {
 				// return error
-				await message.reply({ content: `${emoji(emojis?.no, message)} Error` });
+				await message.reply({ content: "Error, please check the console" });
 			} catch (ignored) {}
 		}
 		throw error;
