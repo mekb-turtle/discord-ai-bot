@@ -7,6 +7,7 @@
 
 ### Set-up instructions
 1. Install [Node.js](https://nodejs.org) (if you have a package manager, use that instead to install this)
+    - Make sure to install at least v14 of Node.js
 2. Install [Ollama](https://github.com/jmorganca/ollama) (ditto)
 3. Pull (download) a model, e.g `ollama pull orca` or `ollama pull llama2`
 4. Start Ollama by running `ollama serve`
