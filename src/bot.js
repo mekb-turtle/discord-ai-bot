@@ -101,7 +101,7 @@ function splitText(str, length) {
 }
 
 function getBoolean(str) {
-	return !!str && str != "false" && str != "0";
+	return !!str && str != "false" && str != "no" && str != "off" && str != "0";
 }
 
 function parseJSONMessage(str) {
@@ -117,6 +117,8 @@ const userSystemMessage = typeof process.env.SYSTEM === "string" ?
 const useUserSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!userSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
 let modelInfo = null;
+
+const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
 let handlingMessage = false;
 const messageQueue = [];
@@ -158,7 +160,7 @@ async function handleMessage(message) {
 		if (message.author.bot) return;
 
 		const botRole = message.guild?.members?.me?.roles?.botRole;
-		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g");
+		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g"); // RegExp to match a mention for the bot
 
 		if (typeof message.content !== "string" || message.content.length == 0) {
 			return;
@@ -171,7 +173,7 @@ async function handleMessage(message) {
 			if (reply.author.id != client.user.id) return;
 			if (messages[channelID] == null) return;
 			if ((context = messages[channelID][reply.id]) == null) return;
-		} else if (message.type != MessageType.Default || (message.guild && !message.content.match(myMention))) {
+		} else if (message.type != MessageType.Default || (requiresMention && message.guild && !message.content.match(myMention))) {
 			return;
 		}
 
