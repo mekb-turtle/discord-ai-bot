@@ -9,7 +9,7 @@
 1. Install [Node.js](https://nodejs.org) (if you have a package manager, use that instead to install this)
     - Make sure to install at least v14 of Node.js
 2. Install [Ollama](https://github.com/jmorganca/ollama) (ditto)
-3. Pull (download) a model, e.g `ollama pull orca` or `ollama pull llama2`
+3. Pull (download) a model, e.g `ollama pull orca-mini` or `ollama pull llama2`
 4. Start Ollama by running `ollama serve`
 5. [Create a Discord bot](https://discord.com/developers/applications)
     - Under Application » Bot
@@ -20,13 +20,15 @@
     2. Enable `bot`
     3. Enable Send Messages, Read Messages/View Channels, and Read Message History
     4. Under Generated URL, click Copy and paste the URL in your browser
-7. Rename `.env.example` to `.env` and edit the file
+7. Git clone this repo 'git clone https://github.com/jmorganca/ollama'
+8. Rename `.env.example` to `.env` and edit the file
     - You can get the token from Application » Bot » Token, **never share this with anyone**
-    - Make sure to change the model if you aren't using `orca`
+    - Make sure to change the model if you aren't using `orca-mini`
     - Ollama IP can be kept the same unless you have changed the port
     - Set the channels to the channel ID, comma separated
         1. In Discord, go to User Settings » Advanced, and enable Developer Mode
         2. Right click on a channel you want to use, and click Copy Channel ID
     - You can edit the system message the bot uses, or disable it entirely
-8. Start the bot with `npm start`
-9. You can interact with the bot by @mentioning it with your message
+9. run command 'npm install discord' before you go to number 9
+10. Start the bot with `npm start`
+11. You can interact with the bot by @mentioning it with your message
