@@ -169,6 +169,7 @@ const userSystemMessage = typeof process.env.SYSTEM === "string" ?
 	parseJSONMessage(process.env.SYSTEM).replace(/<date>/gi, new Date().toUTCString()) : null;
 const useUserSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!userSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
+const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
 let modelInfo = null;
 
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
@@ -325,7 +326,7 @@ client.on(Events.MessageCreate, async message => {
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
-		const prefix = messages[channelID].amount == 0 ?
+		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
 			`> This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n\n` : "";
 
 		// reply (will automatically stop typing)
