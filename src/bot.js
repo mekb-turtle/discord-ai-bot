@@ -347,6 +347,7 @@ client.on(Events.MessageCreate, async message => {
 			messages[channelID][replyMessageIDs[i]] = context;
 		}
 		messages[channelID].last = context;
+		++messages[channelID].amount;
 	} catch (error) {
 		if (typing) {
 			try {
