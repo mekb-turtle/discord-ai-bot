@@ -6,19 +6,11 @@ import axios from "axios";
 dotenv.config();
 
 const model = process.env.MODEL;
-const ollamaURL = new URL(process.env.OLLAMA);
+const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 
-async function makeRequest(path, method, data) {
-	// make a request to ollama
-	const url = new URL(ollamaURL);
-	if (path.startsWith("/")) path = path.substring(1);
-	if (!url.pathname.endsWith("/")) url.pathname += "/";
-	url.pathname += path;
-	const result = await axios({
-		method, url, data
-	});
-	return result.data;
+if (servers.length == 0) {
+	throw new Error("No servers available");
 }
 
 let log;
@@ -26,6 +18,67 @@ process.on("message", data => {
 	if (data.shardID) client.shardID = data.shardID;
 	if (data.logger) log = new Logger(data.logger);
 });
+
+const logError = (error) => {
+	if (error.response) {
+		let str = `Error ${error.response.status} ${error.response.statusText}: ${error.request.method} ${error.request.path}`;
+		if (error.response.data?.error) {
+			str += ": " + error.response.data.error;
+		}
+		log(LogLevel.Error, str);
+	} else {
+		log(LogLevel.Error, error);
+	}
+};
+
+function shuffleArray(array) {
+	for (let i = array.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[array[i], array[j]] = [array[j], array[i]];
+	}
+	return array;
+}
+
+async function makeRequest(path, method, data) {
+	while (servers.filter(server => server.available).length == 0) {
+		// wait until a server is available
+		await new Promise(res => setTimeout(res, 1000));
+	}
+
+	let error = null;
+	// randomly loop through the servers available, don't shuffle the actual array because we want to be notified of any updates
+	const order = shuffleArray(new Array(servers.length).fill().map((_, i) => i));
+	for (const j in order) {
+		if (!order.hasOwnProperty(j)) continue;
+		const i = order[j];
+		// try one until it succeeds
+		try {
+			// make a request to ollama
+			if (!servers[i].available) continue;
+			const url = new URL(servers[i].url); // don't modify the original URL
+
+			servers[i].available = false;
+
+			if (path.startsWith("/")) path = path.substring(1);
+			if (!url.pathname.endsWith("/")) url.pathname += "/"; // safety
+			url.pathname += path;
+			log(LogLevel.Debug, `Making request to ${url}`);
+			const result = await axios({
+				method, url, data
+			});
+			servers[i].available = true;
+			return result.data;
+		} catch (err) {
+			servers[i].available = true;
+			error = err;
+			logError(error);
+		}
+	}
+	if (!error) {
+		throw new Error("No servers available");
+	}
+	throw error;
+}
 
 const client = new Client({
 	intents: [
@@ -120,33 +173,7 @@ let modelInfo = null;
 
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
-let handlingMessage = false;
-const messageQueue = [];
 client.on(Events.MessageCreate, async message => {
-	messageQueue.push(message);
-});
-
-setInterval(async () => {
-	if (handlingMessage) return;
-	handlingMessage = true;
-	const message = messageQueue.pop();
-	try {
-		if (message) await handleMessage(message);
-	} catch (error) {
-		if (error.response) {
-			let str = `Error ${error.response.status} ${error.response.statusText}: ${error.request.method} ${error.request.path}`;
-			if (error.response.data?.error) {
-				str += ": " + error.response.data.error;
-			}
-			log(LogLevel.Error, str);
-		} else {
-			log(LogLevel.Error, error.stack);
-		}
-	}
-	handlingMessage = false;
-}, 10);
-
-async function handleMessage(message) {
 	let typing = false;
 	try {
 		await message.fetch();
@@ -253,36 +280,31 @@ async function handleMessage(message) {
 				if (typeof modelInfo !== "object") throw "failed to fetch model information";
 			}
 
-			// context
+			// context if the message is not a reply
 			if (context == null) {
 				context = messages[channelID].last;
 			}
 
-			let systemMessage = null;
-			if (!context) {
-				// only use system message on first message
-				const systemMessages = [];
+			const systemMessages = [];
 
-				if (useModelSystemMessage) {
-					systemMessages.push(modelInfo.system);
-				}
-
-				if (useUserSystemMessage) {
-					systemMessages.push(userSystemMessage);
-				}
-
-				// join them together
-				systemMessage = systemMessages.join("\n\n");
+			if (useModelSystemMessage) {
+				systemMessages.push(modelInfo.system);
 			}
+
+			if (useUserSystemMessage) {
+				systemMessages.push(userSystemMessage);
+			}
+
+			// join them together
+			const systemMessage = systemMessages.join("\n\n");
 
 			// make request to model
 			response = (await makeRequest("/api/generate", "post", {
 				model: model,
 				prompt: userInput,
 				system: systemMessage,
-				context,
+				context
 			}));
-			console.log(response);
 			response = response.split("\n").filter(e => !!e).map(e => {
 				return JSON.parse(e);
 			});
@@ -334,6 +356,6 @@ async function handleMessage(message) {
 		}
 		throw error;
 	}
-}
+});
 
 client.login(process.env.TOKEN);

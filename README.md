@@ -23,7 +23,8 @@
 7. Rename `.env.example` to `.env` and edit the file
     - You can get the token from Application » Bot » Token, **never share this with anyone**
     - Make sure to change the model if you aren't using `orca`
-    - Ollama IP can be kept the same unless you have changed the port
+    - Ollama URL can be kept the same unless you have changed the port
+    - You can use multiple Ollama servers at the same time by separating the URLs with commas
     - Set the channels to the channel ID, comma separated
         1. In Discord, go to User Settings » Advanced, and enable Developer Mode
         2. Right click on a channel you want to use, and click Copy Channel ID
