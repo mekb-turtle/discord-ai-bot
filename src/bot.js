@@ -327,7 +327,7 @@ client.on(Events.MessageCreate, async message => {
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
 		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
-			`> This is the beginning of the conversation, type "${message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n\n` : "";
+			`> This is the beginning of the conversation, type "${requiresMention && message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n\n` : "";
 
 		// reply (will automatically stop typing)
 		const responseMessages = splitText(`${prefix}${responseText}`, 2000).map(content => ({ content, embeds: [] }));
