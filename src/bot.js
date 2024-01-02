@@ -356,7 +356,7 @@ client.on(Events.MessageCreate, async message => {
 				await message.reply({ content: "Error, please check the console" });
 			} catch (ignored) {}
 		}
-		throw error;
+		logError(error);
 	}
 });
 
