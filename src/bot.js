@@ -47,7 +47,8 @@ async function makeRequest(path, method, data) {
 
 	let error = null;
 	// randomly loop through the servers available, don't shuffle the actual array because we want to be notified of any updates
-	const order = shuffleArray(new Array(servers.length).fill().map((_, i) => i));
+	let order = new Array(servers.length).fill().map((_, i) => i);
+	if (randomServer) order = shuffleArray(order);
 	for (const j in order) {
 		if (!order.hasOwnProperty(j)) continue;
 		const i = order[j];
@@ -165,14 +166,29 @@ function parseJSONMessage(str) {
 	}).join("\n");
 }
 
-const userSystemMessage = typeof process.env.SYSTEM === "string" ?
+const customSystemMessage = typeof process.env.SYSTEM === "string" ?
 	parseJSONMessage(process.env.SYSTEM).replace(/<date>/gi, new Date().toUTCString()) : null;
-const useUserSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!userSystemMessage;
+const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
 const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
+const randomServer = getBoolean(process.env.RANDOM_SERVER);
 let modelInfo = null;
 
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
+
+async function replySplitMessage(replyMessage, content) {
+	const responseMessages = splitText(content, 2000).map(content => ({ content }));
+
+	const replyMessages = [];
+	for (let i = 0; i < responseMessages.length; ++i) {
+		if (i == 0) {
+			replyMessages.push(await replyMessage.reply(responseMessages[i]));
+		} else {
+			replyMessages.push(await replyMessage.channel.send(responseMessages[i]));
+		}
+	}
+	return replyMessages;
+}
 
 client.on(Events.MessageCreate, async message => {
 	let typing = false;
@@ -185,7 +201,7 @@ client.on(Events.MessageCreate, async message => {
 
 		// return if user is a bot, or non-default message
 		if (!message.author.id) return;
-		if (message.author.bot) return;
+		if (message.author.bot && message.author.id != "1191951986019532830") return;
 
 		const botRole = message.guild?.members?.me?.roles?.botRole;
 		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g"); // RegExp to match a mention for the bot
@@ -201,15 +217,96 @@ client.on(Events.MessageCreate, async message => {
 			if (reply.author.id != client.user.id) return;
 			if (messages[channelID] == null) return;
 			if ((context = messages[channelID][reply.id]) == null) return;
-		} else if (message.type != MessageType.Default || (requiresMention && message.guild && !message.content.match(myMention))) {
+		} else if (message.type != MessageType.Default) {
 			return;
 		}
+
+		// fetch info about the model like the template and system message
+		if (modelInfo == null) {
+			modelInfo = (await makeRequest("/api/show", "post", {
+				name: model
+			}));
+			if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
+			if (typeof modelInfo !== "object") throw "failed to fetch model information";
+		}
+
+		const systemMessages = [];
+
+		if (useModelSystemMessage && modelInfo.system) {
+			systemMessages.push(modelInfo.system);
+		}
+
+		if (useCustomSystemMessage) {
+			systemMessages.push(customSystemMessage);
+		}
+
+		// join them together
+		const systemMessage = systemMessages.join("\n\n");
+
+		// deal with commands first before passing to LLM
+		let userInput = message.content
+			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
+
+		// may change this to slash commands in the future
+		// i'm using regular text commands currently because the bot interacts with text content anyway
+		if (userInput.startsWith(".")) {
+			const args = userInput.substring(1).split(/\s+/g);
+			const cmd = args.shift();
+			switch (cmd) {
+				case "reset":
+				case "clear":
+					if (messages[channelID] != null) {
+						// reset conversation
+						const cleared = messages[channelID].amount;
+
+						// clear
+						delete messages[channelID];
+
+						if (cleared > 0) {
+							await message.reply({ content: `Cleared conversation of ${cleared} messages` });
+							break;
+						}
+					}
+					await message.reply({ content: "No messages to clear" });
+					break;
+				case "help":
+				case "?":
+				case "h":
+					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`" });
+					break;
+				case "model":
+					await message.reply({
+						content: `Current model: ${model}`
+					});
+					break;
+				case "system":
+					await replySplitMessage(message, `System message:\n\n${systemMessage}`);
+					break;
+				case "ping":
+					// get ms difference
+					const beforeTime = Date.now();
+					const reply = await message.reply({ content: "Ping" });
+					const afterTime = Date.now();
+					const difference = afterTime - beforeTime;
+					await reply.edit({ content: `Ping: ${difference}ms` });
+					break;
+				case "":
+					break;
+				default:
+					await message.reply({ content: "Unknown command, type `.help` for a list of commands" });
+					break;
+			}
+			return;
+		}
+
+		if (message.type == MessageType.Default && (requiresMention && message.guild && !message.content.match(myMention))) return;
 
 		if (message.guild) {
 			await message.guild.channels.fetch();
 			await message.guild.members.fetch();
 		}
-		const userInput = message.content
+
+		userInput = userInput
 			.replace(myMention, "")
 			.replace(/<#([0-9]+)>/g, (_, id) => {
 				if (message.guild) {
@@ -231,22 +328,8 @@ client.on(Events.MessageCreate, async message => {
 			})
 			.trim();
 
-		if (userInput == ".reset" || userInput == ".clear") {
-			if (messages[channelID] == null) return;
-
-			// reset conversation
-			const cleared = messages[channelID].amount;
-
-			// clear
-			delete messages[channelID];
-
-			if (cleared > 0) {
-				await message.reply({ content: `Cleared conversation of ${cleared} messages` });
-			}
-			return;
-		}
-
 		if (userInput.length == 0) return;
+		console.log(userInput);
 
 		// create conversation
 		if (messages[channelID] == null) {
@@ -272,32 +355,10 @@ client.on(Events.MessageCreate, async message => {
 
 		let response;
 		try {
-			// fetch info about the model like the template and system message
-			if (modelInfo == null) {
-				modelInfo = (await makeRequest("/api/show", "post", {
-					name: model
-				}));
-				if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
-				if (typeof modelInfo !== "object") throw "failed to fetch model information";
-			}
-
 			// context if the message is not a reply
 			if (context == null) {
 				context = messages[channelID].last;
 			}
-
-			const systemMessages = [];
-
-			if (useModelSystemMessage) {
-				systemMessages.push(modelInfo.system);
-			}
-
-			if (useUserSystemMessage) {
-				systemMessages.push(userSystemMessage);
-			}
-
-			// join them together
-			const systemMessage = systemMessages.join("\n\n");
 
 			// make request to model
 			response = (await makeRequest("/api/generate", "post", {
@@ -327,20 +388,10 @@ client.on(Events.MessageCreate, async message => {
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
 		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
-			`> This is the beginning of the conversation, type "${requiresMention && message.guild ? `<@!${client.user.id}> ` : ""}.clear" to clear the conversation.\n\n` : "";
+			"> This is the beginning of the conversation, type `.help` for help.\n\n" : "";
 
 		// reply (will automatically stop typing)
-		const responseMessages = splitText(`${prefix}${responseText}`, 2000).map(content => ({ content, embeds: [] }));
-
-		const replyMessages = [];
-		for (let i = 0; i < responseMessages.length; ++i) {
-			if (i == 0) {
-				replyMessages.push(await message.reply(responseMessages[i]));
-			} else {
-				replyMessages.push(await message.channel.send(responseMessages[i]));
-			}
-		}
-		const replyMessageIDs = replyMessages.map(msg => msg.id);
+		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${responseText}`)).map(msg => msg.id);
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
