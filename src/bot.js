@@ -65,7 +65,8 @@ async function makeRequest(path, method, data) {
 			url.pathname += path;
 			log(LogLevel.Debug, `Making request to ${url}`);
 			const result = await axios({
-				method, url, data
+				method, url, data,
+				responseType: "text"
 			});
 			servers[i].available = true;
 			return result.data;
@@ -389,7 +390,10 @@ client.on(Events.MessageCreate, async message => {
 		}
 		typingInterval = null;
 
-		const responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
+		let responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
+		if (responseText.length == 0) {
+			responseText = "(No response)";
+		}
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
