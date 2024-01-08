@@ -367,6 +367,12 @@ client.on(Events.MessageCreate, async message => {
 				system: systemMessage,
 				context
 			}));
+
+			if (typeof response != "string") {
+				log(LogLevel.Debug, response);
+				throw new TypeError("response is not a string, this may be an error with ollama");
+			}
+
 			response = response.split("\n").filter(e => !!e).map(e => {
 				return JSON.parse(e);
 			});
