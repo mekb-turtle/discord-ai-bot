@@ -167,13 +167,19 @@ function parseJSONMessage(str) {
 	}).join("\n");
 }
 
-const customSystemMessage = typeof process.env.SYSTEM === "string" ?
-	parseJSONMessage(process.env.SYSTEM).replace(/<date>/gi, new Date().toUTCString()) : null;
+function parseEnvString(str) {
+	return typeof str === "string" ?
+		parseJSONMessage(str).replace(/<date>/gi, new Date().toUTCString()) : null;
+}
+
+const customSystemMessage = parseEnvString(process.env.SYSTEM);
 const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
 const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
 const randomServer = getBoolean(process.env.RANDOM_SERVER);
 let modelInfo = null;
+const initialPrompt = parseEnvString(process.env.INITIAL_PROMPT);
+const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
 
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
@@ -330,7 +336,6 @@ client.on(Events.MessageCreate, async message => {
 			.trim();
 
 		if (userInput.length == 0) return;
-		console.log(userInput);
 
 		// create conversation
 		if (messages[channelID] == null) {
@@ -359,6 +364,11 @@ client.on(Events.MessageCreate, async message => {
 			// context if the message is not a reply
 			if (context == null) {
 				context = messages[channelID].last;
+			}
+
+			if (useInitialPrompt && messages[channelID].amount == 0) {
+				userInput = `${initialPrompt}\n\n${userInput}`;
+				log(LogLevel.Debug, "Adding initial prompt to message");
 			}
 
 			// make request to model
