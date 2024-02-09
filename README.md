@@ -20,7 +20,7 @@
     2. Enable `bot`
     3. Enable Send Messages, Read Messages/View Channels, and Read Message History
     4. Under Generated URL, click Copy and paste the URL in your browser
-7. Rename `.env.example` to `.env` and edit the file
+7. Rename `.env.example` to `.env` and edit the `.env` file
     - You can get the token from Application » Bot » Token, **never share this with anyone**
     - Make sure to change the model if you aren't using `orca`
     - Ollama URL can be kept the same unless you have changed the port
@@ -31,3 +31,11 @@
     - You can edit the system message the bot uses, or disable it entirely
 8. Start the bot with `npm start`
 9. You can interact with the bot by @mentioning it with your message
+
+### Set-up instructions Docker
+1. Install [docker](https://docs.docker.com/get-docker/)
+   - should be atleast compatible with version 3 of compose (docker engine 1.13.0+)
+2. repeat steps 2-7 from the main (non-Docker) setup instructions.
+3. Start the bot with `make compose-up` if you have make installed on your machine 
+   - or if you don't have make try `docker compose -p discord-ai up` instead.
+4.  You can interact with the bot by @mentioning it with your message
