@@ -32,10 +32,10 @@
 8. Start the bot with `npm start`
 9. You can interact with the bot by @mentioning it with your message
 
-### Set-up instructions Docker
-1. Install [docker](https://docs.docker.com/get-docker/)
-   - should be atleast compatible with version 3 of compose (docker engine 1.13.0+)
-2. repeat steps 2-7 from the main (non-Docker) setup instructions.
-3. Start the bot with `make compose-up` if you have make installed on your machine 
-   - or if you don't have make try `docker compose -p discord-ai up` instead.
-4.  You can interact with the bot by @mentioning it with your message
+### Set-up instructions with Docker
+1. Install [Docker](https://docs.docker.com/get-docker/)
+   - Should be atleast compatible with version 3 of compose (docker engine 1.13.0+)
+2. Repeat steps 2—7 from the other setup instructions
+3. Start the bot with `make compose-up` if you have Make installed
+   - Otherwise, try `docker compose -p discord-ai up` instead
+4. You can interact with the bot by @mentioning it with your message
