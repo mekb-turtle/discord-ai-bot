@@ -9,6 +9,16 @@ const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 
+function validateEnvVariables() {
+    const requiredVars = ['TOKEN', 'MODEL', 'OLLAMA', 'CHANNELS'];
+    const missingVars = requiredVars.filter(key => !process.env[key]);
+    if (missingVars.length > 0) {
+        console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+        process.exit(1);
+    }
+}
+validateEnvVariables();
+
 if (servers.length == 0) {
 	throw new Error("No servers available");
 }
@@ -39,47 +49,73 @@ function shuffleArray(array) {
 	return array;
 }
 
-async function makeRequest(path, method, data) {
-	while (servers.filter(server => server.available).length == 0) {
-		// wait until a server is available
-		await new Promise(res => setTimeout(res, 1000));
-	}
+async function makeRequest(path, method, data, images = []) {
+    const retryDelay = 1000; // Delay between retries in milliseconds
+    const maxRetries = 3; // Maximum number of retries for a request
+    const serverUnavailableDelay = 5000; // Delay before retrying when no servers are available
 
-	let error = null;
-	// randomly loop through the servers available, don't shuffle the actual array because we want to be notified of any updates
-	let order = new Array(servers.length).fill().map((_, i) => i);
-	if (randomServer) order = shuffleArray(order);
-	for (const j in order) {
-		if (!order.hasOwnProperty(j)) continue;
-		const i = order[j];
-		// try one until it succeeds
-		try {
-			// make a request to ollama
-			if (!servers[i].available) continue;
-			const url = new URL(servers[i].url); // don't modify the original URL
+    // Normalize path
+    if (!path.startsWith("/")) path = `/${path}`;
 
-			servers[i].available = false;
+    // Enhanced server selection with load consideration (if applicable)
+    const selectServer = () => servers.sort((a, b) => Number(a.available) - Number(b.available)).find(server => server.available);
 
-			if (path.startsWith("/")) path = path.substring(1);
-			if (!url.pathname.endsWith("/")) url.pathname += "/"; // safety
-			url.pathname += path;
-			log(LogLevel.Debug, `Making request to ${url}`);
-			const result = await axios({
-				method, url, data,
-				responseType: "text"
-			});
-			servers[i].available = true;
-			return result.data;
-		} catch (err) {
-			servers[i].available = true;
-			error = err;
-			logError(error);
-		}
-	}
-	if (!error) {
-		throw new Error("No servers available");
-	}
-	throw error;
+    // Include advanced parameters from environment variables
+    const advancedParams = {
+        options: process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined, // Parse if provided
+        template: process.env.TEMPLATE,
+        keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
+    };
+
+    // Function to handle the actual request logic
+    const attemptRequest = async (server, url, requestBody) => {
+        server.available = false; // Mark server as busy
+        log(LogLevel.Debug, `Making request to ${url}`);
+        const response = await axios({
+            method,
+            url: url.toString(),
+            data: requestBody,
+            responseType: "json" // Assuming JSON response for better handling
+        });
+        server.available = true; // Mark server as available again
+        return response.data;
+    };
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const server = selectServer();
+        if (!server) {
+            log(LogLevel.Warn, `No servers available, waiting ${serverUnavailableDelay / 1000} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, serverUnavailableDelay));
+            continue; // Skip this attempt, wait for server availability
+        }
+
+        const url = new URL(path, server.url); // Construct full URL
+        // Merge the basic data with images and advanced parameters, excluding undefined values
+        const requestBody = {
+            ...data,
+            ...(images.length > 0 ? { images } : {}),
+            ...Object.fromEntries(Object.entries(advancedParams).filter(([_, v]) => v !== undefined && v !== 'false'))
+        };
+
+        try {
+            return await attemptRequest(server, url, requestBody);
+        } catch (error) {
+            server.available = true; // Ensure server is marked available even on error
+            logError(`Attempt ${attempt + 1} failed with error: ${error.message}`);
+
+            if (attempt === maxRetries - 1) {
+                // Log final failure and throw error
+                log(LogLevel.Error, `Request to ${url} failed after ${maxRetries} attempts.`);
+                throw new Error(`Request failed after ${maxRetries} attempts: ${error.message}`);
+            }
+
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+    }
+
+    // If the function hasn't returned by now, it means all retries have been exhausted
+    throw new Error("Unable to make request, all retries failed.");
 }
 
 const client = new Client({
@@ -125,7 +161,7 @@ function splitText(str, length) {
 		word = word[0];
 		if (word.length == 0) break;
 		if (segment.length + word.length > length) {
-			// prioritise splitting by newlines over other whitespaces
+			// prioritize splitting by newlines over other whitespaces
 			if (segment.includes("\n")) {
 				// append up all but last paragraph
 				const beforeParagraph = segment.match(/^.*\n/s);
@@ -160,11 +196,21 @@ function getBoolean(str) {
 }
 
 function parseJSONMessage(str) {
-	return str.split(/[\r\n]+/g).map(function(line) {
-		const result = JSON.parse(`"${line}"`);
-		if (typeof result !== "string") throw new "Invalid syntax in .env file";
-		return result;
-	}).join("\n");
+  return str.split(/[\r\n]+/g).map(function(line) {
+    // Attempt to parse each line as JSON after escaping necessary characters
+    try {
+      // Escape backslashes and double quotes in the line
+      const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const result = JSON.parse(`"${escapedLine}"`);
+      if (typeof result !== "string") {
+        throw new Error("Line is not a valid string after JSON parsing.");
+      }
+      return result;
+    } catch (error) {
+      // Throw a more descriptive error with the problematic line
+      throw new Error(`Invalid syntax in input: "${line}" - ${error.message}`);
+    }
+  }).join("\n");
 }
 
 function parseEnvString(str) {
@@ -217,6 +263,14 @@ client.on(Events.MessageCreate, async message => {
 			return;
 		}
 
+		const attachments = message.attachments.filter(attachment => attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'));
+        console.log("Processing attachments...");
+		const mediaBase64 = await Promise.all(attachments.map(async attachment => {
+			const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+			return Buffer.from(response.data, 'binary').toString('base64');
+		}));
+		console.log("Attachments processed.");
+
 		let context = null;
 		if (message.type == MessageType.Reply) {
 			const reply = await message.fetchReference();
@@ -255,7 +309,7 @@ client.on(Events.MessageCreate, async message => {
 			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
 
 		// may change this to slash commands in the future
-		// i'm using regular text commands currently because the bot interacts with text content anyway
+		// I'm using regular text commands currently because the bot interacts with text content anyway
 		if (userInput.startsWith(".")) {
 			const args = userInput.substring(1).split(/\s+/g);
 			const cmd = args.shift();
@@ -282,9 +336,22 @@ client.on(Events.MessageCreate, async message => {
 					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`" });
 					break;
 				case "model":
-					await message.reply({
-						content: `Current model: ${model}`
-					});
+					if (modelInfo && typeof modelInfo === 'object') {
+						// Extracting model details
+						const details = modelInfo.details;
+						// Preparing the message
+						const modelDetailsMessage = `**Model Name**: ${model}\n` +
+							`**Format**: ${details.format}\n` +
+							`**Family**: ${details.family}\n` +
+							`**Parameter Size**: ${details.parameter_size}\n` +
+							`**Quantization Level**: ${details.quantization_level}\n` +
+							`**Template**: \`${modelInfo.template.replace(/`/g, "\\`")}\`\n` +
+							`**ModelFile**:\n\`\`\`${modelInfo.modelfile.replace(/`/g, "'")}\`\`\``; // Use triple backticks for code block formatting and replace backticks in modelfile content to avoid formatting issues
+
+						await message.reply({ content: modelDetailsMessage });
+					} else {
+						await message.reply({ content: "Model information is currently unavailable. Please try again later." });
+					}
 					break;
 				case "system":
 					await replySplitMessage(message, `System message:\n\n${systemMessage}`);
@@ -359,6 +426,8 @@ client.on(Events.MessageCreate, async message => {
 			}
 		}, 7000);
 
+        log(LogLevel.Debug, `Generating response for: ${userInput}`);
+
 		let response;
 		try {
 			// context if the message is not a reply
@@ -376,14 +445,15 @@ client.on(Events.MessageCreate, async message => {
 				model: model,
 				prompt: userInput,
 				system: systemMessage,
-				context
+				context,
+				images: mediaBase64
 			}));
 
 			if (typeof response != "string") {
 				log(LogLevel.Debug, response);
-				throw new TypeError("response is not a string, this may be an error with ollama");
+				throw new TypeError("Response is not a string. This may be an error with Ollama.");
 			}
-
+			
 			response = response.split("\n").filter(e => !!e).map(e => {
 				return JSON.parse(e);
 			});
@@ -392,6 +462,7 @@ client.on(Events.MessageCreate, async message => {
 				clearInterval(typingInterval);
 			}
 			typingInterval = null;
+			log(LogLevel.Error, `Failed to generate response for: ${userInput}, Error: ${error}`);
 			throw error;
 		}
 
@@ -405,13 +476,29 @@ client.on(Events.MessageCreate, async message => {
 			responseText = "(No response)";
 		}
 
+		// Extract additional metrics from the last element of the response array
+		const metrics = response[response.length - 1];
+		const totalDurationSeconds = metrics.total_duration / 1e9; // Convert nanoseconds to seconds
+		const evalCount = metrics.eval_count;
+		const evalDurationSeconds = metrics.eval_duration / 1e9; // Convert nanoseconds to seconds
+		const tokensPerSecond = evalCount / evalDurationSeconds;
+
+		// Format total duration into minutes and seconds
+		const totalMinutes = Math.floor(totalDurationSeconds / 60);
+		const totalSeconds = Math.floor(totalDurationSeconds % 60);
+		const formattedTotalDuration = `${totalMinutes > 0 ? `${totalMinutes}m ` : ""}${totalSeconds}s`;
+
+		// Prepare the additional information string
+		const additionalInfo = `> Response generated in ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)`;
+
 		log(LogLevel.Debug, `Response: ${responseText}`);
+		log(LogLevel.Debug, additionalInfo); // Log the additional metrics
 
 		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
 			"> This is the beginning of the conversation, type `.help` for help.\n\n" : "";
 
-		// reply (will automatically stop typing)
-		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${responseText}`)).map(msg => msg.id);
+		// Include the additional information in the reply
+		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${responseText}\n\n${additionalInfo}`)).map(msg => msg.id);
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
