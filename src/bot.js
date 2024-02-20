@@ -8,6 +8,7 @@ dotenv.config();
 const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
+const showGenerationMetrics = process.env.SHOW_GENERATION_METRICS === 'true';
 
 function validateEnvVariables() {
     const requiredVars = ['TOKEN', 'MODEL', 'OLLAMA', 'CHANNELS'];
@@ -50,9 +51,9 @@ function shuffleArray(array) {
 }
 
 async function makeRequest(path, method, data, images = []) {
-    const retryDelay = 1000; // Delay between retries in milliseconds
-    const maxRetries = 3; // Maximum number of retries for a request
-    const serverUnavailableDelay = 5000; // Delay before retrying when no servers are available
+    const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
+    const maxRetries = parseInt(process.env.MAX_RETRIES, 10) || 3; // Maximum number of retries for a request
+    const serverUnavailableDelay = parseInt(process.env.SERVER_UNAVAILABLE_DELAY, 10) || 5000; // Delay before retrying when no servers are available
 
     // Normalize path
     if (!path.startsWith("/")) path = `/${path}`;
@@ -287,6 +288,7 @@ client.on(Events.MessageCreate, async message => {
 			modelInfo = (await makeRequest("/api/show", "post", {
 				name: model
 			}));
+
 			if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
 			if (typeof modelInfo !== "object") throw "failed to fetch model information";
 		}
@@ -333,7 +335,7 @@ client.on(Events.MessageCreate, async message => {
 				case "help":
 				case "?":
 				case "h":
-					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`" });
+					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`\n- `.license`" });
 					break;
 				case "model":
 					if (modelInfo && typeof modelInfo === 'object') {
@@ -364,6 +366,25 @@ client.on(Events.MessageCreate, async message => {
 					const difference = afterTime - beforeTime;
 					await reply.edit({ content: `Ping: ${difference}ms` });
 					break;
+					case "license":
+						// Check if modelInfo has license information
+						if (modelInfo && modelInfo.license) {
+							const licenseInfo = modelInfo.license;
+							// Split the license information into segments if it's too long for a single message
+							const maxMessageLength = 1900; // Slightly less than 2000 to account for markdown characters
+							if (licenseInfo.length > maxMessageLength) {
+								const licenseParts = licenseInfo.match(new RegExp('.{1,' + maxMessageLength + '}', 'g'));
+								for (const part of licenseParts) {
+									await message.reply({ content: "```" + part + "```" });
+								}
+							} else {
+								// If the license information fits into one message, send it as is
+								await message.reply({ content: "```" + licenseInfo + "```" });
+							}
+						} else {
+							await message.reply({ content: "License information is currently unavailable. Please try again later." });
+						}
+						break;
 				case "":
 					break;
 				default:
@@ -489,7 +510,7 @@ client.on(Events.MessageCreate, async message => {
 		const formattedTotalDuration = `${totalMinutes > 0 ? `${totalMinutes}m ` : ""}${totalSeconds}s`;
 
 		// Prepare the additional information string
-		const additionalInfo = `> Response generated in ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)`;
+		const additionalInfo = showGenerationMetrics ? `> Response generated in ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)` : "";
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 		log(LogLevel.Debug, additionalInfo); // Log the additional metrics
