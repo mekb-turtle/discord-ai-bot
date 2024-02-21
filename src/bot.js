@@ -9,6 +9,8 @@ const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 const showGenerationMetrics = process.env.SHOW_GENERATION_METRICS === 'true';
+const generateTitle = process.env.GENERATE_TITLE === 'true';
+const titlePromptBase = process.env.TITLE_PROMPT;
 
 function validateEnvVariables() {
     const requiredVars = ['TOKEN', 'MODEL', 'OLLAMA', 'CHANNELS'];
@@ -263,12 +265,10 @@ client.on(Events.MessageCreate, async message => {
 		}
 
 		const attachments = message.attachments.filter(attachment => attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'));
-        console.log("Processing attachments...");
 		const mediaBase64 = await Promise.all(attachments.map(async attachment => {
 			const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
 			return Buffer.from(response.data, 'binary').toString('base64');
 		}));
-		console.log("Attachments processed.");
 
 		let context = null;
 		if (message.type == MessageType.Reply) {
@@ -346,7 +346,7 @@ client.on(Events.MessageCreate, async message => {
 							`**Parameter Size**: ${details.parameter_size}\n` +
 							`**Quantization Level**: ${details.quantization_level}\n` +
 							`**Template**: \`${modelInfo.template.replace(/`/g, "\\`")}\`\n` +
-							`**ModelFile**:\n\`\`\`${modelInfo.modelfile.replace(/`/g, "'")}\`\`\``; // Use triple backticks for code block formatting and replace backticks in modelfile content to avoid formatting issues
+							`**ModelFile**:\n\`\`\`${modelInfo.modelfile.replace(/`/g, "'")}\`\`\``;
 
 						await message.reply({ content: modelDetailsMessage });
 					} else {
@@ -485,11 +485,6 @@ client.on(Events.MessageCreate, async message => {
 			throw error;
 		}
 
-		if (typingInterval != null) {
-			clearInterval(typingInterval);
-		}
-		typingInterval = null;
-
 		let responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
 		if (responseText.length == 0) {
 			responseText = "(No response)";
@@ -509,15 +504,48 @@ client.on(Events.MessageCreate, async message => {
 
 		// Prepare the additional information string
 		const additionalInfo = showGenerationMetrics ? `> Response generated in ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)` : "";
+		
+        // Generate a header for the response based on the generated response
+		let header = ""; // Initialize an empty header
+		if (generateTitle) {
+			try {
+				const fullPrompt = `${titlePromptBase} ${userInput} ${responseText}`;
 
-		log(LogLevel.Debug, `Response: ${responseText}`);
+				const headerResponse = await makeRequest("/api/generate", "post", {
+					model: model,
+					prompt: fullPrompt,
+					stream: false
+				});
+
+				if (headerResponse && headerResponse.response) {
+					// Format the title as needed, then prepend to the response text
+					const title = headerResponse.response.replace(/^"|"$/g, '').trim();
+					header = `**${title}**\n\n`; // Format the header as bold for Discord
+				} else {
+					log(LogLevel.Warn, "Header response did not contain expected data.");
+				}
+			} catch (error) {
+				log(LogLevel.Error, `Failed to generate header for: ${userInput}, Error: ${error}`);
+				// Proceed without a header if there's an error
+			}
+		}
+
+		// Now prepend the generated title (header) to the response text
+		let finalResponseText = `${header}${responseText}`;
+
+		log(LogLevel.Debug, `Response: ${header}${responseText}`);
 		log(LogLevel.Debug, additionalInfo); // Log the additional metrics
 
 		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
 			"> This is the beginning of the conversation, type `.help` for help.\n\n" : "";
 
 		// Include the additional information in the reply
-		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${responseText}\n\n${additionalInfo}`)).map(msg => msg.id);
+		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${finalResponseText}\n\n${additionalInfo}`)).map(msg => msg.id);
+		
+		if (typingInterval != null) {
+			clearInterval(typingInterval);
+		}
+		typingInterval = null;
 
 		// add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
