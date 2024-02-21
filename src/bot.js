@@ -42,14 +42,6 @@ const logError = (error) => {
 	}
 };
 
-function shuffleArray(array) {
-	for (let i = array.length - 1; i > 0; i--) {
-		const j = Math.floor(Math.random() * (i + 1));
-		[array[i], array[j]] = [array[j], array[i]];
-	}
-	return array;
-}
-
 async function makeRequest(path, method, data, images = []) {
     const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
     const maxRetries = parseInt(process.env.MAX_RETRIES, 10) || 3; // Maximum number of retries for a request
@@ -67,6 +59,13 @@ async function makeRequest(path, method, data, images = []) {
         template: process.env.TEMPLATE,
         keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
     };
+	
+	// Check and adjust the seed parameter
+	if (advancedParams.options && advancedParams.options.seed === -1) {
+		// Set to a random seed if the current value is -1
+		advancedParams.options.seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+		advancedParams.options.seed = advancedParams.options.seed.toLocaleString("fullwide", {useGrouping: false});
+	}
 
     // Function to handle the actual request logic
     const attemptRequest = async (server, url, requestBody) => {
@@ -223,7 +222,6 @@ const customSystemMessage = parseEnvString(process.env.SYSTEM);
 const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
 const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
-const randomServer = getBoolean(process.env.RANDOM_SERVER);
 let modelInfo = null;
 const initialPrompt = parseEnvString(process.env.INITIAL_PROMPT);
 const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
