@@ -58,7 +58,7 @@ async function makeRequest(path, method, data, images = []) {
     // Include advanced parameters from environment variables
     const advancedParams = {
         options: process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined, // Parse if provided
-        template: process.env.TEMPLATE,
+        template: getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined,
         keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
     };
 	
@@ -368,16 +368,20 @@ client.on(Events.MessageCreate, async message => {
 						// Check if modelInfo has license information
 						if (modelInfo && modelInfo.license) {
 							const licenseInfo = modelInfo.license;
-							// Split the license information into segments if it's too long for a single message
-							const maxMessageLength = 1900; // Slightly less than 2000 to account for markdown characters
-							if (licenseInfo.length > maxMessageLength) {
-								const licenseParts = licenseInfo.match(new RegExp('.{1,' + maxMessageLength + '}', 'g'));
-								for (const part of licenseParts) {
-									await message.reply({ content: "```" + part + "```" });
-								}
+							// Ensure the license information fits within Discord's embed description limit
+							const maxEmbedDescriptionLength = 4096; // Max length for embed description
+
+							if (licenseInfo.length <= maxEmbedDescriptionLength) {
+								// If the license information fits into one embed, send it as is
+								const embed = {
+									color: 0x0099ff, // Example color, change as needed
+									title: 'License Information',
+									description: licenseInfo,
+								};
+								await message.reply({ embeds: [embed] });
 							} else {
-								// If the license information fits into one message, send it as is
-								await message.reply({ content: "```" + licenseInfo + "```" });
+								// If the license information is too long, consider providing a concise summary or a link to the full text
+								await message.reply({ content: "License information is too long to display here. Please refer to the documentation for the full license text." });
 							}
 						} else {
 							await message.reply({ content: "License information is currently unavailable. Please try again later." });
@@ -509,7 +513,8 @@ client.on(Events.MessageCreate, async message => {
 		let header = ""; // Initialize an empty header
 		if (generateTitle) {
 			try {
-				const fullPrompt = `${titlePromptBase} ${userInput} ${responseText}`;
+				const fullPrompt = `${titlePromptBase} ${userInput}`;
+				console.log(`Making title generation request with prompt: ${fullPrompt}`);
 
 				const headerResponse = await makeRequest("/api/generate", "post", {
 					model: model,
