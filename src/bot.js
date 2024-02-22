@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, MessageType, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, MessageType, Partials, ActivityType } from "discord.js";
 import { Logger, LogLevel } from "meklog";
 import dotenv from "dotenv";
 import axios from "axios";
@@ -136,7 +136,13 @@ const client = new Client({
 
 client.once(Events.ClientReady, async () => {
 	await client.guilds.fetch();
-	client.user.setPresence({ activities: [], status: "online" });
+	client.user.setPresence({
+		activities: [{
+			name: "G30 is cool",
+			type: ActivityType.Listening
+		}],
+		status: "online" 
+	});
 });
 
 const messages = {};
@@ -255,7 +261,7 @@ client.on(Events.MessageCreate, async message => {
 
 		// return if user is a bot, or non-default message
 		if (!message.author.id) return;
-		if (message.author.bot && message.author.id != "1191951986019532830") return;
+		if (message.author.bot) return;
 
 		const botRole = message.guild?.members?.me?.roles?.botRole;
 		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g"); // RegExp to match a mention for the bot
