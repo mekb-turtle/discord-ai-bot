@@ -96,7 +96,7 @@ async function makeRequest(path, method, data, images = []) {
         const requestBody = {
             ...data,
             ...(images.length > 0 ? { images } : {}),
-            ...advancedParams.options,
+            ...Object.fromEntries(Object.entries(advancedParams).filter(([_, v]) => v !== undefined && v !== 'false'))
         };
 
         try {
