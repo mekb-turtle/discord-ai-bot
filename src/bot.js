@@ -152,7 +152,6 @@ client.once(Events.ClientReady, async () => {
         { name: `Model: ${model}`, type: ActivityType.Playing },
         { name: `Format: ${modelInfo.details.format}`, type: ActivityType.Watching },
         { name: `Family: ${modelInfo.details.family}`, type: ActivityType.Listening },
-        // Add more activities based on the information you want to display
     ];
 
     let currentActivity = 0;
@@ -176,55 +175,61 @@ client.once(Events.ClientReady, async () => {
 const messages = {};
 
 // split text so it fits in a Discord message
-function splitText(str, length) {
-	// trim matches different characters to \s
-	str = str
-		.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-		.replace(/^\s+|\s+$/g, "");
-	const segments = [];
-	let segment = "";
-	let word, suffix;
-	function appendSegment() {
-		segment = segment.replace(/^\s+|\s+$/g, "");
-		if (segment.length > 0) {
-			segments.push(segment);
-			segment = "";
-		}
-	}
-	// match a word
-	while ((word = str.match(/^[^\s]*(?:\s+|$)/)) != null) {
-		suffix = "";
-		word = word[0];
-		if (word.length == 0) break;
-		if (segment.length + word.length > length) {
-			// prioritize splitting by newlines over other whitespaces
-			if (segment.includes("\n")) {
-				// append up all but last paragraph
-				const beforeParagraph = segment.match(/^.*\n/s);
-				if (beforeParagraph != null) {
-					const lastParagraph = segment.substring(beforeParagraph[0].length, segment.length);
-					segment = beforeParagraph[0];
-					appendSegment();
-					segment = lastParagraph;
-					continue;
-				}
-			}
-			appendSegment();
-			// if word is larger than the split length
-			if (word.length > length) {
-				word = word.substring(0, length);
-				if (length > 1 && word.match(/^[^\s]+$/)) {
-					// try to hyphenate word
-					word = word.substring(0, word.length - 1);
-					suffix = "-";
-				}
-			}
-		}
-		str = str.substring(word.length, str.length);
-		segment += word + suffix;
-	}
-	appendSegment();
-	return segments;
+function splitText(text, options = {}) {
+    const {
+        maxLength = 2000, // Max length of each chunk
+        splitChars = ['\n', ' '], // Preferred order of characters to split on
+        prepend = "", // Text to prepend to chunks after the first
+        append = "" // Text to append to chunks before the last
+    } = options;
+
+    text = text.toString().trim(); // Ensure text is a string and trim whitespace
+
+    // If the initial text is within the maxLength, return it as the only chunk
+    if (text.length <= maxLength) return [text];
+
+    // Helper function to split text by a character or RegExp
+    const splitByChar = (char, chunk) => {
+        if (char instanceof RegExp) {
+            // Splitting by RegExp, ensuring no empty strings
+            return chunk.split(char).filter(Boolean);
+        } else {
+            // Splitting by string
+            return chunk.split(char);
+        }
+    };
+
+    // Iteratively split the text by each character in splitChars
+    let chunks = [text];
+    for (const char of splitChars) {
+        if (chunks.every(chunk => chunk.length <= maxLength)) break; // All chunks are within maxLength
+        chunks = chunks.flatMap(chunk => splitByChar(char, chunk));
+    }
+
+    // Ensure all chunks are within maxLength, throwing an error if not
+    if (chunks.some(chunk => chunk.length > maxLength)) {
+        throw new RangeError("SPLIT_MAX_LEN: Unable to split text into small enough chunks.");
+    }
+
+    // Reassemble chunks into messages, adhering to maxLength
+    const messages = [];
+    let currentChunk = "";
+    chunks.forEach((chunk, index) => {
+        // Determine if the current chunk can fit into the current message
+        if (currentChunk && (currentChunk + chunk + append + prepend).length > maxLength) {
+            // Finish the current message and start a new one
+            messages.push(currentChunk + append);
+            currentChunk = prepend + chunk;
+        } else {
+            // Append the current chunk to the current message
+            currentChunk += ((currentChunk ? splitChars[0] : '') + chunk);
+        }
+    });
+
+    // Add the last chunk if it exists
+    if (currentChunk) messages.push(currentChunk);
+
+    return messages;
 }
 
 function getBoolean(str) {
@@ -399,23 +404,43 @@ client.on(Events.MessageCreate, async message => {
 					await reply.edit({ content: `Ping: ${difference}ms` });
 					break;
 					case "license":
-						// Check if modelInfo has license information
 						if (modelInfo && modelInfo.license) {
-							const licenseInfo = modelInfo.license;
-							// Ensure the license information fits within Discord's embed description limit
-							const maxEmbedDescriptionLength = 4096; // Max length for embed description
+							const licenseInfo = "```" + modelInfo.license + "```"; // Wrap in triple backticks for code block formatting
+							// Dynamically construct the thread name using the model name
+							const threadName = `${model} - License Information`;
 
-							if (licenseInfo.length <= maxEmbedDescriptionLength) {
+							// Check if the license information fits within Discord's embed description limit
+							if (licenseInfo.length <= 4096) {
 								// If the license information fits into one embed, send it as is
 								const embed = {
 									color: 0x0099ff, // Example color, change as needed
-									title: 'License Information',
+									title: `${model} - License Information`,
 									description: licenseInfo,
 								};
 								await message.reply({ embeds: [embed] });
 							} else {
-								// If the license information is too long, consider providing a concise summary or a link to the full text
-								await message.reply({ content: "License information is too long to display here. Please refer to the documentation for the full license text." });
+								// If the license information is too long, check for or start a new thread
+								let thread = message.channel.threads.cache.find(x => x.name === threadName);
+								if (!thread) {
+									thread = await message.startThread({
+										name: threadName,
+										autoArchiveDuration: 60, // Optional: Adjust auto-archive duration as needed
+										reason: `License Information for ${model}`,
+									});
+								}
+
+								// Split the license information into manageable parts for embeds
+								const parts = splitText(modelInfo.license, { maxLength: 4000 }); // Adjust for backticks and embed limits
+								for (const [index, part] of parts.entries()) {
+									const embed = {
+										color: 0x0099ff, // Example color, change as needed
+										title: `${model} - License Information (Part ${index + 1} of ${parts.length})`,
+										description: "```" + part + "```", // Ensure each part is wrapped in triple backticks
+									};
+									await thread.send({ embeds: [embed] });
+									// Adding a slight delay to prevent rate limiting (optional, adjust as necessary)
+									await new Promise(resolve => setTimeout(resolve, 500));
+								}
 							}
 						} else {
 							await message.reply({ content: "License information is currently unavailable. Please try again later." });
