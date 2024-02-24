@@ -135,14 +135,42 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, async () => {
-	await client.guilds.fetch();
-	client.user.setPresence({
-		activities: [{
-			name: "G30 is cool",
-			type: ActivityType.Listening
-		}],
-		status: "online" 
-	});
+    await client.guilds.fetch();
+
+    // Fetch model information if not already done
+    if (modelInfo == null) {
+        modelInfo = (await makeRequest("/api/show", "post", {
+            name: model
+        }));
+
+        if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
+        if (typeof modelInfo !== "object") throw "failed to fetch model information";
+    }
+
+    // Define an array of activities based on model information
+    const activities = [
+        { name: `Model: ${model}`, type: ActivityType.Playing },
+        { name: `Format: ${modelInfo.details.format}`, type: ActivityType.Watching },
+        { name: `Family: ${modelInfo.details.family}`, type: ActivityType.Listening },
+        // Add more activities based on the information you want to display
+    ];
+
+    let currentActivity = 0;
+
+    // Function to update bot's activity
+    const updateActivity = () => {
+        client.user.setPresence({
+            activities: [activities[currentActivity]],
+            status: "online"
+        });
+        currentActivity = (currentActivity + 1) % activities.length; // Cycle through activities
+    };
+
+    // Update activity every X milliseconds (e.g., 5000 milliseconds = 5 seconds)
+    setInterval(updateActivity, 10000);
+
+    // Set initial activity
+    updateActivity();
 });
 
 const messages = {};
@@ -502,19 +530,25 @@ client.on(Events.MessageCreate, async message => {
 
 		// Extract additional metrics from the last element of the response array
 		const metrics = response[response.length - 1];
-		const totalDurationSeconds = metrics.total_duration / 1e9; // Convert nanoseconds to seconds
-		const evalCount = metrics.eval_count;
-		const evalDurationSeconds = metrics.eval_duration / 1e9; // Convert nanoseconds to seconds
-		const tokensPerSecond = evalCount / evalDurationSeconds;
+		const totalDurationSeconds = metrics.total_duration / 1e9; // Convert nanoseconds to seconds for total duration
+		const loadDurationSeconds = metrics.load_duration / 1e9; // Convert nanoseconds to seconds for load duration
+		const promptEvalDurationSeconds = metrics.prompt_eval_duration / 1e9; // Convert nanoseconds to seconds for prompt evaluation
+		const evalDurationSeconds = metrics.eval_duration / 1e9; // Convert nanoseconds to seconds for evaluation
 
-		// Format total duration into minutes and seconds
-		const totalMinutes = Math.floor(totalDurationSeconds / 60);
-		const totalSeconds = Math.floor(totalDurationSeconds % 60);
-		const formattedTotalDuration = `${totalMinutes > 0 ? `${totalMinutes}m ` : ""}${totalSeconds}s`;
+		// Calculate tokens per second based on evaluation count and evaluation duration
+		const tokensPerSecond = metrics.eval_count / evalDurationSeconds;
 
-		// Prepare the additional information string
-		const additionalInfo = showGenerationMetrics ? `> Response generated in ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)` : "";
-		
+		// Instead of formatting total duration into minutes and seconds, show precise value in seconds
+		const formattedTotalDuration = `${totalDurationSeconds.toFixed(2)}s`;
+
+		// Check if it's the first message to the bot in this channel
+		const isFirstMessage = messages[channelID].amount === 0;
+
+		// Prepare the additional information string, conditionally including the model load time
+		const additionalInfo = showGenerationMetrics ? `> Total Duration: ${formattedTotalDuration} (including model loading and response generation) (\`${tokensPerSecond.toFixed(2)}\` tok/s)
+		${isFirstMessage ? `> Model Load Time: ${loadDurationSeconds.toFixed(2)}s\n` : ''}> Prompt Evaluation Time: ${promptEvalDurationSeconds.toFixed(2)}s
+		> Response Generation Time: ${evalDurationSeconds.toFixed(2)}s` : "";
+
         // Generate a header for the response based on the generated response
 		let header = ""; // Initialize an empty header
 		if (generateTitle) {
