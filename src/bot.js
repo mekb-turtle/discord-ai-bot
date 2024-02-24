@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits, MessageType, Partials, ActivityType } from "discord.js";
 import { Logger, LogLevel } from "meklog";
-import dotenv from "dotenv";
 import axios from "axios";
+import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ const generateTitle = process.env.GENERATE_TITLE === 'true';
 const titlePromptBase = process.env.TITLE_PROMPT;
 
 function validateEnvVariables() {
-    const requiredVars = ['TOKEN', 'MODEL', 'OLLAMA', 'CHANNELS'];
+    const requiredVars = ['CHANNELS', 'MODEL', 'OLLAMA', 'TOKEN'];
     const missingVars = requiredVars.filter(key => !process.env[key]);
     if (missingVars.length > 0) {
         console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
@@ -44,6 +44,13 @@ const logError = (error) => {
 	}
 };
 
+// Include advanced parameters from environment variables
+const advancedParams = {
+    options: process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined, // Parse if provided
+    template: getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined,
+    keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
+};
+
 async function makeRequest(path, method, data, images = []) {
     const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
     const maxRetries = parseInt(process.env.MAX_RETRIES, 10) || 3; // Maximum number of retries for a request
@@ -54,13 +61,6 @@ async function makeRequest(path, method, data, images = []) {
 
     // Enhanced server selection with load consideration (if applicable)
     const selectServer = () => servers.sort((a, b) => Number(a.available) - Number(b.available)).find(server => server.available);
-
-    // Include advanced parameters from environment variables
-    const advancedParams = {
-        options: process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined, // Parse if provided
-        template: getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined,
-        keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
-    };
 	
 	// Check and adjust the seed parameter
 	if (advancedParams.options && advancedParams.options.seed === -1) {
@@ -174,7 +174,7 @@ client.once(Events.ClientReady, async () => {
 
 const messages = {};
 
-// split text so it fits in a Discord message
+// Split text so it fits in a Discord message
 function splitText(text, options = {}) {
     const {
         maxLength = 2000, // Max length of each chunk
@@ -199,7 +199,7 @@ function splitText(text, options = {}) {
         }
     };
 
-    // Iteratively split the text by each character in splitChars
+    // Split the text by each character in splitChars
     let chunks = [text];
     for (const char of splitChars) {
         if (chunks.every(chunk => chunk.length <= maxLength)) break; // All chunks are within maxLength
@@ -214,7 +214,7 @@ function splitText(text, options = {}) {
     // Reassemble chunks into messages, adhering to maxLength
     const messages = [];
     let currentChunk = "";
-    chunks.forEach((chunk, index) => {
+    chunks.forEach((chunk, _index) => {
         // Determine if the current chunk can fit into the current message
         if (currentChunk && (currentChunk + chunk + append + prepend).length > maxLength) {
             // Finish the current message and start a new one
@@ -288,11 +288,11 @@ client.on(Events.MessageCreate, async message => {
 	try {
 		await message.fetch();
 
-		// return if not in the right channel
+		// Return if not in the right channel
 		const channelID = message.channel.id;
 		if (message.guild && !channels.includes(channelID)) return;
 
-		// return if user is a bot, or non-default message
+		// Return if user is a bot, or non-default message
 		if (!message.author.id) return;
 		if (message.author.bot) return;
 
@@ -320,7 +320,7 @@ client.on(Events.MessageCreate, async message => {
 			return;
 		}
 
-		// fetch info about the model like the template and system message
+		// Fetch info about the model like the template and system message
 		if (modelInfo == null) {
 			modelInfo = (await makeRequest("/api/show", "post", {
 				name: model
@@ -340,15 +340,14 @@ client.on(Events.MessageCreate, async message => {
 			systemMessages.push(customSystemMessage);
 		}
 
-		// join them together
+		// Join them together
 		const systemMessage = systemMessages.join("\n\n");
 
-		// deal with commands first before passing to LLM
+		// Deal with commands first before passing to LLM
 		let userInput = message.content
 			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
 
-		// may change this to slash commands in the future
-		// I'm using regular text commands currently because the bot interacts with text content anyway
+		// May change this to slash commands in the future. I'm using regular text commands currently because the bot interacts with text content anyway
 		if (userInput.startsWith(".")) {
 			const args = userInput.substring(1).split(/\s+/g);
 			const cmd = args.shift();
@@ -356,10 +355,10 @@ client.on(Events.MessageCreate, async message => {
 				case "reset":
 				case "clear":
 					if (messages[channelID] != null) {
-						// reset conversation
+						// Reset conversation
 						const cleared = messages[channelID].amount;
 
-						// clear
+						// Clear
 						delete messages[channelID];
 
 						if (cleared > 0) {
@@ -372,7 +371,7 @@ client.on(Events.MessageCreate, async message => {
 				case "help":
 				case "?":
 				case "h":
-					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`\n- `.license`" });
+					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.template`\n- `.system`\n- `.license`" });
 					break;
 				case "model":
 					if (modelInfo && typeof modelInfo === 'object') {
@@ -384,7 +383,6 @@ client.on(Events.MessageCreate, async message => {
 							`**Family**: ${details.family}\n` +
 							`**Parameter Size**: ${details.parameter_size}\n` +
 							`**Quantization Level**: ${details.quantization_level}\n` +
-							`**Template**: \`${modelInfo.template.replace(/`/g, "\\`")}\`\n` +
 							`**ModelFile**:\n\`\`\`${modelInfo.modelfile.replace(/`/g, "'")}\`\`\``;
 
 						await message.reply({ content: modelDetailsMessage });
@@ -392,11 +390,20 @@ client.on(Events.MessageCreate, async message => {
 						await message.reply({ content: "Model information is currently unavailable. Please try again later." });
 					}
 					break;
+				case "template":
+					if (modelInfo && modelInfo.template) {
+						// Ensure the template string is properly escaped for Discord formatting
+						const templateMessage = `**Template**:\n\`\`\`${modelInfo.template.replace(/`/g, "\\`")}\`\`\``;
+						await message.reply({ content: templateMessage });
+					} else {
+						await message.reply({ content: "Template information is currently unavailable. Please try again later." });
+					}
+					break;
 				case "system":
 					await replySplitMessage(message, `System message:\n\n${systemMessage}`);
 					break;
 				case "ping":
-					// get ms difference
+					// Get ms difference
 					const beforeTime = Date.now();
 					const reply = await message.reply({ content: "Ping" });
 					const afterTime = Date.now();
@@ -405,7 +412,7 @@ client.on(Events.MessageCreate, async message => {
 					break;
 					case "license":
 						if (modelInfo && modelInfo.license) {
-							const licenseInfo = "```" + modelInfo.license + "```"; // Wrap in triple backticks for code block formatting
+							const licenseInfo = "```" + modelInfo.license + "```"; // Wrap in triple back-ticks for code block formatting
 							// Dynamically construct the thread name using the model name
 							const threadName = `${model} - License Information`;
 
@@ -430,12 +437,12 @@ client.on(Events.MessageCreate, async message => {
 								}
 
 								// Split the license information into manageable parts for embeds
-								const parts = splitText(modelInfo.license, { maxLength: 4000 }); // Adjust for backticks and embed limits
+								const parts = splitText(modelInfo.license, { maxLength: 4000 }); // Adjust for back-ticks and embed limits
 								for (const [index, part] of parts.entries()) {
 									const embed = {
 										color: 0x0099ff, // Example color, change as needed
 										title: `${model} - License Information (Part ${index + 1} of ${parts.length})`,
-										description: "```" + part + "```", // Ensure each part is wrapped in triple backticks
+										description: "```" + part + "```", // Ensure each part is wrapped in triple back-ticks
 									};
 									await thread.send({ embeds: [embed] });
 									// Adding a slight delay to prevent rate limiting (optional, adjust as necessary)
@@ -486,15 +493,15 @@ client.on(Events.MessageCreate, async message => {
 
 		if (userInput.length == 0) return;
 
-		// create conversation
+		// Create conversation
 		if (messages[channelID] == null) {
 			messages[channelID] = { amount: 0, last: null };
 		}
 
-		// log user's message
+		// Log user's message
 		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : "DMs"} - ${message.author.username}: ${userInput}`);
 
-		// start typing
+		// Start typing
 		typing = true;
 		await message.channel.sendTyping();
 		let typingInterval = setInterval(async () => {
@@ -512,7 +519,7 @@ client.on(Events.MessageCreate, async message => {
 
 		let response;
 		try {
-			// context if the message is not a reply
+			// Context if the message is not a reply
 			if (context == null) {
 				context = messages[channelID].last;
 			}
@@ -522,13 +529,14 @@ client.on(Events.MessageCreate, async message => {
 				log(LogLevel.Debug, "Adding initial prompt to message");
 			}
 
-			// make request to model
+			// Make request to model
 			response = (await makeRequest("/api/generate", "post", {
 				model: model,
 				prompt: userInput,
 				system: systemMessage,
 				context,
-				images: mediaBase64
+				images: mediaBase64,
+				...advancedParams.options
 			}));
 
 			if (typeof response != "string") {
@@ -570,7 +578,7 @@ client.on(Events.MessageCreate, async message => {
 		const isFirstMessage = messages[channelID].amount === 0;
 
 		// Prepare the additional information string, conditionally including the model load time
-		const additionalInfo = showGenerationMetrics ? `> Total Duration: ${formattedTotalDuration} (including model loading and response generation) (\`${tokensPerSecond.toFixed(2)}\` tok/s)
+		const additionalInfo = showGenerationMetrics ? `> Total Duration: ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)
 		${isFirstMessage ? `> Model Load Time: ${loadDurationSeconds.toFixed(2)}s\n` : ''}> Prompt Evaluation Time: ${promptEvalDurationSeconds.toFixed(2)}s
 		> Response Generation Time: ${evalDurationSeconds.toFixed(2)}s` : "";
 
@@ -584,6 +592,7 @@ client.on(Events.MessageCreate, async message => {
 				const headerResponse = await makeRequest("/api/generate", "post", {
 					model: model,
 					prompt: fullPrompt,
+					context,
 					stream: false
 				});
 
@@ -617,7 +626,7 @@ client.on(Events.MessageCreate, async message => {
 		}
 		typingInterval = null;
 
-		// add response to conversation
+		// Add response to conversation
 		context = response.filter(e => e.done && e.context)[0].context;
 		for (let i = 0; i < replyMessageIDs.length; ++i) {
 			messages[channelID][replyMessageIDs[i]] = context;
@@ -627,7 +636,7 @@ client.on(Events.MessageCreate, async message => {
 	} catch (error) {
 		if (typing) {
 			try {
-				// return error
+				// Return error
 				await message.reply({ content: "Error, please check the console" });
 			} catch (ignored) {}
 		}
