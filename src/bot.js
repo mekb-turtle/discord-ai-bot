@@ -94,7 +94,7 @@ async function makeRequest(path, method, data, images = []) {
                 // Something happened in setting up the request that triggered an Error
                 log(LogLevel.Error, "Error", error.message);
             }
-            throw error; // Rethrow the error for retry logic
+            throw error; // Re-throw the error for retry logic
         }
     };
 
@@ -374,12 +374,13 @@ client.on(Events.MessageCreate, async message => {
 							break;
 						}
 					}
-					await message.reply({ content: "No messages to clear" });
+					await message.reply({ content: "There are no messages to clear" });
 					break;
 				case "help":
 				case "?":
 				case "h":
-					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.template`\n- `.system`\n- `.license`" });
+				case "commands":
+					await message.reply({ content: "Commands:\n- `.help`, `.?`, `.h`, `.commands` for help\n- `.reset`, `.clear` to reset conversation\n- `.ping` to check responsiveness\n- `.model` for model info\n- `.template` for template info\n- `.system` for system info\n- `.license` for license info" });
 					break;
 				case "model":
 					if (modelInfo && typeof modelInfo === 'object') {
@@ -413,7 +414,7 @@ client.on(Events.MessageCreate, async message => {
 				case "ping":
 					// Get ms difference
 					const beforeTime = Date.now();
-					const reply = await message.reply({ content: "Ping" });
+					const reply = await message.reply({ content: "Calculating ping..." });
 					const afterTime = Date.now();
 					const difference = afterTime - beforeTime;
 					await reply.edit({ content: `Ping: ${difference}ms` });
@@ -458,13 +459,13 @@ client.on(Events.MessageCreate, async message => {
 								}
 							}
 						} else {
-							await message.reply({ content: "License information is currently unavailable. Please try again later." });
+							await message.reply({ content: "This model's license information is currently unavailable or could not be found. Please try again later." });
 						}
 						break;
 				case "":
 					break;
 				default:
-					await message.reply({ content: "Unknown command, type `.help` for a list of commands" });
+					await message.reply({ content: "Unknown command, type `.help`, `.?`, `.h`, or `.commands` to list all available bot commands." });
 					break;
 			}
 			return;
@@ -576,25 +577,38 @@ client.on(Events.MessageCreate, async message => {
 		const promptEvalDurationSeconds = metrics.prompt_eval_duration / 1e9; // Convert nanoseconds to seconds for prompt evaluation
 		const evalDurationSeconds = metrics.eval_duration / 1e9; // Convert nanoseconds to seconds for evaluation
 
-		// Calculate tokens per second based on evaluation count and evaluation duration
-		const tokensPerSecond = metrics.eval_count / evalDurationSeconds;
+		// Counts
+		const promptEvalCount = metrics.prompt_eval_count;
+		const evalCount = metrics.eval_count;
 
-		// Instead of formatting total duration into minutes and seconds, show precise value in seconds
+		// Calculate percentages of total duration for prompt evaluation and response generation
+		const promptEvalPercentage = ((promptEvalDurationSeconds / totalDurationSeconds) * 100).toFixed(2);
+		const responseGenPercentage = ((evalDurationSeconds / totalDurationSeconds) * 100).toFixed(2);
+
+		// Calculate Load Time Percentage if load duration is not zero
+		const loadTimePercentage = loadDurationSeconds > 0 ? ((loadDurationSeconds / totalDurationSeconds) * 100).toFixed(2) : "0.00";
+
+		// Calculate tokens per second based on evaluation count and evaluation duration
+		const tokensPerSecond = evalCount / evalDurationSeconds;
+
+		// Format total duration
 		const formattedTotalDuration = `${totalDurationSeconds.toFixed(2)}s`;
 
 		// Check if it's the first message to the bot in this channel
 		const isFirstMessage = messages[channelID].amount === 0;
 
-		// Prepare the additional information string, conditionally including the model load time
-		const additionalInfo = showGenerationMetrics ? `> Total Duration: ${formattedTotalDuration} (\`${tokensPerSecond.toFixed(2)}\` tok/s)
-		${isFirstMessage ? `> Model Load Time: ${loadDurationSeconds.toFixed(2)}s\n` : ''}> Prompt Evaluation Time: ${promptEvalDurationSeconds.toFixed(2)}s
-		> Response Generation Time: ${evalDurationSeconds.toFixed(2)}s` : "";
+		// Prepare the additionalInfo string
+		const additionalInfo = showGenerationMetrics ? 
+		`> **Total Duration**: \`${formattedTotalDuration}\` (\`${tokensPerSecond.toFixed(2)}\` tok/s)\n` +
+		`${(isFirstMessage && loadDurationSeconds.toFixed(2) !== '0.00') ? `> **Model Load Time**: \`${loadDurationSeconds.toFixed(2)}s\`, (\`${loadTimePercentage}%\`)\n` : ''}` +
+		`> **Prompt Evaluation**: \`${promptEvalCount}\` counts, \`${promptEvalDurationSeconds.toFixed(2)}s\`, (\`${promptEvalPercentage}%\`)\n` +
+		`> **Response Generation**: \`${evalCount}\` counts, \`${evalDurationSeconds.toFixed(2)}s\`, (\`${responseGenPercentage}%\`)` : "";
 
         // Generate a header for the response based on the generated response
 		let header = ""; // Initialize an empty header
 		if (generateTitle) {
 			try {
-				const fullPrompt = `${titlePromptBase} ${userInput}`;
+				const fullPrompt = `${titlePromptBase}:${userInput}`;
 				console.log(`Making title generation request with prompt: ${fullPrompt}`);
 
 				const headerResponse = await makeRequest("/api/generate", "post", {
@@ -624,7 +638,7 @@ client.on(Events.MessageCreate, async message => {
 		log(LogLevel.Debug, additionalInfo); // Log the additional metrics
 
 		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
-			"> This is the beginning of the conversation, type `.help` for help.\n\n" : "";
+			"> This is the beginning of the conversation, type `.help`, `.?`, `.h`, or `.commands` for help.\n\n" : "";
 
 		// Include the additional information in the reply
 		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${finalResponseText}\n\n${additionalInfo}`)).map(msg => msg.id);
