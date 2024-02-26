@@ -66,7 +66,6 @@ async function makeRequest(path, method, data, images = []) {
 	if (advancedParams.options && advancedParams.options.seed === -1) {
 		// Set to a random seed if the current value is -1
 		advancedParams.options.seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-		advancedParams.options.seed = advancedParams.options.seed.toLocaleString("fullwide", {useGrouping: false});
 	}
 
     // Function to handle the actual request logic
