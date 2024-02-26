@@ -71,16 +71,32 @@ async function makeRequest(path, method, data, images = []) {
 
     // Function to handle the actual request logic
     const attemptRequest = async (server, url, requestBody) => {
-        server.available = false; // Mark server as busy
+        server.available = false;
         log(LogLevel.Debug, `Making request to ${url}`);
-        const response = await axios({
-            method,
-            url: url.toString(),
-            data: requestBody,
-            responseType: "json" // Assuming JSON response for better handling
-        });
-        server.available = true; // Mark server as available again
-        return response.data;
+        try {
+            const response = await axios({
+                method,
+                url: url.toString(),
+                data: requestBody,
+                responseType: "json"
+            });
+            server.available = true;
+            return response.data;
+        } catch (error) {
+            server.available = true; // Mark server as available again even on error
+            if (error.response) {
+                // The request was made and the server responded with a status code
+                // that falls out of the range of 2xx
+                log(LogLevel.Error, `Server responded with status ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+            } else if (error.request) {
+                // The request was made but no response was received
+                log(LogLevel.Error, "The request was made but no response was received");
+            } else {
+                // Something happened in setting up the request that triggered an Error
+                log(LogLevel.Error, "Error", error.message);
+            }
+            throw error; // Rethrow the error for retry logic
+        }
     };
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -88,35 +104,28 @@ async function makeRequest(path, method, data, images = []) {
         if (!server) {
             log(LogLevel.Warn, `No servers available, waiting ${serverUnavailableDelay / 1000} seconds...`);
             await new Promise(resolve => setTimeout(resolve, serverUnavailableDelay));
-            continue; // Skip this attempt, wait for server availability
+            continue;
         }
 
-        const url = new URL(path, server.url); // Construct full URL
-        // Merge the basic data with images and advanced parameters, excluding undefined values
+        const url = new URL(path, server.url);
         const requestBody = {
             ...data,
             ...(images.length > 0 ? { images } : {}),
-            ...Object.fromEntries(Object.entries(advancedParams).filter(([_, v]) => v !== undefined && v !== 'false'))
+            ...Object.fromEntries(Object.entries(advancedParams).filter(([_, v]) => v !== undefined))
         };
 
         try {
             return await attemptRequest(server, url, requestBody);
         } catch (error) {
-            server.available = true; // Ensure server is marked available even on error
-            logError(`Attempt ${attempt + 1} failed with error: ${error.message}`);
-
+            logError(`Attempt ${attempt + 1} failed with error: ${error.message || error.toString()}`);
             if (attempt === maxRetries - 1) {
-                // Log final failure and throw error
                 log(LogLevel.Error, `Request to ${url} failed after ${maxRetries} attempts.`);
-                throw new Error(`Request failed after ${maxRetries} attempts: ${error.message}`);
+                throw new Error(`Request failed after ${maxRetries} attempts: ${error.message || error.toString()}`);
             }
-
-            // Wait before retrying
             await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
     }
 
-    // If the function hasn't returned by now, it means all retries have been exhausted
     throw new Error("Unable to make request, all retries failed.");
 }
 
@@ -536,7 +545,7 @@ client.on(Events.MessageCreate, async message => {
 				system: systemMessage,
 				context,
 				images: mediaBase64,
-				...advancedParams.options
+				options: advancedParams.options
 			}));
 
 			if (typeof response != "string") {
