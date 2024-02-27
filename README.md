@@ -79,6 +79,7 @@ After completing the setup, your Discord AI Bot is ready. You can begin interact
 | `INITIAL_PROMPT`              | Initial prompt for starting conversations.                   |
 | `TITLE_PROMPT`                | Prompt for generating response titles.                       |
 | `USE_SYSTEM`                  | Enable/disable system message (`true`/`false`).              |
+| `USE_MODEL_SYSTEM`            | Enable/disable model's default system message (`true`/`false`).|
 | `USE_TEMPLATE`                | Enable/disable template usage (`true`/`false`).              |
 | `USE_INITIAL_PROMPT`          | Enable/disable initial prompt (`true`/`false`).              |
 | `GENERATE_TITLE`              | Enable/disable title generation for responses (`true`/`false`).|
@@ -87,6 +88,7 @@ After completing the setup, your Discord AI Bot is ready. You can begin interact
 | `SHOW_GENERATION_METRICS`     | Display generation metrics (`true`/`false`).                 |
 | `KEEP_ALIVE`                  | Duration to keep the model loaded in memory after a request. |
 | `RETRY_DELAY`                 | Delay in milliseconds between retries for API requests (ms). |
+| `SERVER_UNAVAILABLE_DELAY`    | Delay in milliseconds before retrying when no servers are available.|
 | `MAX_RETRIES`                 | Maximum number of retries for a failed API requests.         |
 
 ### Security and Best Practices
