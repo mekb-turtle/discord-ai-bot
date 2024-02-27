@@ -26,6 +26,12 @@ if (servers.length == 0) {
 	throw new Error("No servers available");
 }
 
+preloadModel(model).then(() => {
+    console.log("Model pre-loading complete. Application is now ready to handle requests.");
+}).catch(error => {
+    console.error("An error occurred during model pre-loading:", error);
+});
+
 let log;
 process.on("message", data => {
 	if (data.shardID) client.shardID = data.shardID;
@@ -50,6 +56,32 @@ const advancedParams = {
     template: getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined,
     keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
 };
+
+async function preloadModel(modelName) {
+    const requestBody = {
+        model: modelName,
+    };
+
+    // Assuming you have a function to select a server like in your original code
+    const server = servers.find(server => server.available); // Simplified server selection
+    if (!server) {
+        console.error("No available servers for pre-loading the model.");
+        return;
+    }
+
+    const url = new URL("/api/generate", server.url); // Using the generate endpoint as an example
+
+    try {
+        await axios({
+            method: 'post',
+            url: url.toString(),
+            data: requestBody,
+        });
+        console.log(`Model ${modelName} pre-loaded successfully.`);
+    } catch (error) {
+        console.error(`Failed to pre-load model ${modelName}:`, error);
+    }
+}
 
 async function makeRequest(path, method, data, images = []) {
     const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
@@ -542,9 +574,9 @@ client.on(Events.MessageCreate, async message => {
 			response = (await makeRequest("/api/generate", "post", {
 				model: model,
 				prompt: userInput,
+				images: mediaBase64,
 				system: systemMessage,
 				context,
-				images: mediaBase64,
 				options: advancedParams.options
 			}));
 
@@ -614,13 +646,25 @@ client.on(Events.MessageCreate, async message => {
 				const headerResponse = await makeRequest("/api/generate", "post", {
 					model: model,
 					prompt: fullPrompt,
-					context,
-					stream: false
+					stream: false,
+					options: {
+					num_predict: 15,
+					top_p: 0.1,
+					repeat_penalty: 1.3,
+					seed: -1
+				}
 				});
 
 				if (headerResponse && headerResponse.response) {
 					// Format the title as needed, then prepend to the response text
-					const title = headerResponse.response.replace(/^"|"$/g, '').trim();
+					let title = headerResponse.response.replace(/^"|"$/g, '').trim();
+
+					// Post-processing step to handle incomplete sentence endings
+					const endsWithIncompletePunctuation = /[,;:]$/;
+					if (endsWithIncompletePunctuation.test(title)) {
+						title = title.replace(/[,;:]$/, '...'); // Replace the ending punctuation with an ellipsis
+					}
+
 					header = `**${title}**\n\n`; // Format the header as bold for Discord
 				} else {
 					log(LogLevel.Warn, "Header response did not contain expected data.");
