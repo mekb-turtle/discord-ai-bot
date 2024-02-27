@@ -5,13 +5,55 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// Environment Variables
 const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 const showGenerationMetrics = process.env.SHOW_GENERATION_METRICS === 'true';
 const generateTitle = process.env.GENERATE_TITLE === 'true';
 const titlePromptBase = process.env.TITLE_PROMPT;
+const options = process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined;
+const template = getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined;
+const keepAlive = process.env.KEEP_ALIVE || '5m';
+const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
+const maxRetries = parseInt(process.env.MAX_RETRIES, 10) || 3; // Maximum number of retries for a request
+const serverUnavailableDelay = parseInt(process.env.SERVER_UNAVAILABLE_DELAY, 10) || 5000; // Delay before retrying when no servers are available
+const customSystemMessage = parseEnvString(process.env.SYSTEM);
+const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
+const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
+const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
+const initialPrompt = parseEnvString(process.env.INITIAL_PROMPT);
+const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
+const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
+// Helper Functions
+function getBoolean(str) {
+	return !!str && str != "false" && str != "no" && str != "off" && str != "0";
+}
+
+function parseEnvString(str) {
+  return typeof str === "string" ? parseJSONMessage(str).replace(/<date>/gi, new Date().toUTCString()) : null;
+}
+
+function parseJSONMessage(str) {
+  return str.split(/[\r\n]+/g).map(function(line) {
+    // Attempt to parse each line as JSON after escaping necessary characters
+    try {
+      // Escape backslashes and double quotes in the line
+      const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const result = JSON.parse(`"${escapedLine}"`);
+      if (typeof result !== "string") {
+        throw new Error("Line is not a valid string after JSON parsing.");
+      }
+      return result;
+    } catch (error) {
+      // Throw a more descriptive error with the problematic line
+      throw new Error(`Invalid syntax in input: "${line}" - ${error.message}`);
+    }
+  }).join("\n");
+}
+
+// Ensure all required environment variables are set
 function validateEnvVariables() {
     const requiredVars = ['CHANNELS', 'MODEL', 'OLLAMA', 'TOKEN'];
     const missingVars = requiredVars.filter(key => !process.env[key]);
@@ -25,12 +67,6 @@ validateEnvVariables();
 if (servers.length == 0) {
 	throw new Error("No servers available");
 }
-
-preloadModel(model).then(() => {
-    console.log("Model pre-loading complete. Application is now ready to handle requests.");
-}).catch(error => {
-    console.error("An error occurred during model pre-loading:", error);
-});
 
 let log;
 process.on("message", data => {
@@ -50,12 +86,11 @@ const logError = (error) => {
 	}
 };
 
-// Include advanced parameters from environment variables
-const advancedParams = {
-    options: process.env.OPTIONS ? JSON.parse(process.env.OPTIONS) : undefined, // Parse if provided
-    template: getBoolean(process.env.USE_TEMPLATE) ? process.env.TEMPLATE : undefined,
-    keep_alive: process.env.KEEP_ALIVE || '5m', // Default to 5 minutes if not specified
-};
+preloadModel(model).then(() => {
+    console.log("Model pre-loading complete. Application is now ready to handle requests.");
+}).catch(error => {
+    console.error("An error occurred during model pre-loading:", error);
+});
 
 async function preloadModel(modelName) {
     const requestBody = {
@@ -83,27 +118,29 @@ async function preloadModel(modelName) {
     }
 }
 
-async function makeRequest(path, method, data, images = []) {
-    const retryDelay = parseInt(process.env.RETRY_DELAY, 10) || 1000; // Delay between retries in milliseconds
-    const maxRetries = parseInt(process.env.MAX_RETRIES, 10) || 3; // Maximum number of retries for a request
-    const serverUnavailableDelay = parseInt(process.env.SERVER_UNAVAILABLE_DELAY, 10) || 5000; // Delay before retrying when no servers are available
-
+async function makeRequest(path, method, data, images = [], overrideOptions = {}) {
     // Normalize path
     if (!path.startsWith("/")) path = `/${path}`;
 
     // Enhanced server selection with load consideration (if applicable)
     const selectServer = () => servers.sort((a, b) => Number(a.available) - Number(b.available)).find(server => server.available);
-	
-	// Check and adjust the seed parameter
-	if (advancedParams.options && advancedParams.options.seed === -1) {
-		// Set to a random seed if the current value is -1
-		advancedParams.options.seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-	}
+    
+    // Initialize options from data or as an empty object if data.options is undefined
+    const options = data.options || {};
+
+    // Check and adjust the seed parameter if options are provided
+    if (options && options.seed === undefined || options.seed === -1) {
+        // Set to a random seed if the current value is undefined or -1
+        options.seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    }
+
+    // Override options with provided overrideOptions
+    Object.assign(options, overrideOptions);
 
     // Function to handle the actual request logic
     const attemptRequest = async (server, url, requestBody) => {
         server.available = false;
-        log(LogLevel.Debug, `Making request to ${url}`);
+        log(LogLevel.Debug, `Making request to ${url} with request body: ${JSON.stringify(requestBody)}`);
         try {
             const response = await axios({
                 method,
@@ -142,7 +179,10 @@ async function makeRequest(path, method, data, images = []) {
         const requestBody = {
             ...data,
             ...(images.length > 0 ? { images } : {}),
-            ...Object.fromEntries(Object.entries(advancedParams).filter(([_, v]) => v !== undefined))
+            options: options,
+			system: customSystemMessage,
+            template: template,
+            keep_alive: keepAlive,
         };
 
         try {
@@ -272,42 +312,7 @@ function splitText(text, options = {}) {
     return messages;
 }
 
-function getBoolean(str) {
-	return !!str && str != "false" && str != "no" && str != "off" && str != "0";
-}
-
-function parseJSONMessage(str) {
-  return str.split(/[\r\n]+/g).map(function(line) {
-    // Attempt to parse each line as JSON after escaping necessary characters
-    try {
-      // Escape backslashes and double quotes in the line
-      const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const result = JSON.parse(`"${escapedLine}"`);
-      if (typeof result !== "string") {
-        throw new Error("Line is not a valid string after JSON parsing.");
-      }
-      return result;
-    } catch (error) {
-      // Throw a more descriptive error with the problematic line
-      throw new Error(`Invalid syntax in input: "${line}" - ${error.message}`);
-    }
-  }).join("\n");
-}
-
-function parseEnvString(str) {
-	return typeof str === "string" ?
-		parseJSONMessage(str).replace(/<date>/gi, new Date().toUTCString()) : null;
-}
-
-const customSystemMessage = parseEnvString(process.env.SYSTEM);
-const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
-const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
-const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
 let modelInfo = null;
-const initialPrompt = parseEnvString(process.env.INITIAL_PROMPT);
-const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
-
-const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
 async function replySplitMessage(replyMessage, content) {
 	const responseMessages = splitText(content, 2000).map(content => ({ content }));
@@ -575,9 +580,11 @@ client.on(Events.MessageCreate, async message => {
 				model: model,
 				prompt: userInput,
 				images: mediaBase64,
-				system: systemMessage,
+				options: options,
+				system: customSystemMessage,
+				template: template,
 				context,
-				options: advancedParams.options
+				keep_alive: keepAlive
 			}));
 
 			if (typeof response != "string") {
@@ -642,17 +649,31 @@ client.on(Events.MessageCreate, async message => {
 			try {
 				const fullPrompt = `${titlePromptBase}:${userInput}`;
 				console.log(`Making title generation request with prompt: ${fullPrompt}`);
+				
+				// Define the seed value (assuming you want a random value if seed is -1)
+				let seed = -1;
+
+				// Check if the seed is hardcoded as -1
+				if (seed === -1) {
+					// Set seed to a random value
+					seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+				}
+
+				// Define the parameters for title generation with hardcoded values
+				const numPredict = 15;
+				const topP = 0.2;
+				const repeatPenalty = 1.3;
 
 				const headerResponse = await makeRequest("/api/generate", "post", {
 					model: model,
 					prompt: fullPrompt,
 					stream: false,
 					options: {
-					num_predict: 15,
-					top_p: 0.1,
-					repeat_penalty: 1.3,
-					seed: -1
-				}
+						num_predict: numPredict,
+						top_p: topP,
+						repeat_penalty: repeatPenalty,
+						seed: seed
+					}
 				});
 
 				if (headerResponse && headerResponse.response) {
@@ -662,7 +683,10 @@ client.on(Events.MessageCreate, async message => {
 					// Post-processing step to handle incomplete sentence endings
 					const endsWithIncompletePunctuation = /[,;:]$/;
 					if (endsWithIncompletePunctuation.test(title)) {
-						title = title.replace(/[,;:]$/, '...'); // Replace the ending punctuation with an ellipsis
+						// Replace the ending punctuation with an ellipsis
+						title = title.replace(/[,;:]$/, '...');
+						// Trim any trailing incomplete words after removing the incomplete punctuation
+						title = title.replace(/\s+\w+$/, '');
 					}
 
 					header = `**${title}**\n\n`; // Format the header as bold for Discord
