@@ -254,6 +254,20 @@ client.on(Events.MessageCreate, async message => {
 		let userInput = message.content
 			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
 
+		// Process text file if attached
+        if (message.attachments.size > 0) {
+            const txtAttachment = message.attachments.find(att => att.name.endsWith('.txt'));
+            if (txtAttachment) {
+                try {
+                    const response = await axios.get(txtAttachment.url);
+					userInput = `${message.content}\n\n${response.data}`;
+                } catch (error) {
+                    log(LogLevel.Error, `Failed to download text file: ${error}`);
+                    return; // Stop processing if file download fails
+                }
+            }
+        }
+
 		// may change this to slash commands in the future
 		// i'm using regular text commands currently because the bot interacts with text content anyway
 		if (userInput.startsWith(".")) {
