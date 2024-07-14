@@ -219,12 +219,11 @@ function getBoolean(str) {
 }
 
 function parseJSONMessage(str) {
-	return str
-		.split(/[\r\n]+/g).map(line => {
-			const result = JSON.parse(`"${line}"`);
-			if (typeof result !== "string") throw new "Invalid syntax in .env file"();
-			return result;
-		}).join("\n");
+	return str.split(/[\r\n]+/g).map(line => {
+		const result = JSON.parse(`"${line}"`);
+		if (typeof result !== "string") throw new "Invalid syntax in .env file"();
+		return result;
+	}).join("\n");
 }
 
 function parseEnvString(str) {
