@@ -15,13 +15,8 @@ import commands from "./commands/commands.js";
 dotenv.config();
 
 const model = process.env.MODEL;
-const servers = process.env.OLLAMA.split(",").map((url) => ({
-	url: new URL(url),
-	available: true,
-}));
-const stableDiffusionServers = process.env.STABLE_DIFFUSION.split(",").map(
-	(url) => ({ url: new URL(url), available: true })
-);
+const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
+const stableDiffusionServers = process.env.STABLE_DIFFUSION.split(",").map( url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 
 if (servers.length == 0) {
@@ -29,12 +24,12 @@ if (servers.length == 0) {
 }
 
 let log;
-process.on("message", (data) => {
+process.on("message", data => {
 	if (data.shardID) client.shardID = data.shardID;
 	if (data.logger) log = new Logger(data.logger);
 });
 
-const logError = (error) => {
+const logError = error => {
 	if (error.response) {
 		let str = `Error ${error.response.status} ${error.response.statusText}: ${error.request.method} ${error.request.path}`;
 		if (error.response.data?.error) {
@@ -55,9 +50,9 @@ function shuffleArray(array) {
 }
 
 async function makeRequest(path, method, data) {
-	while (servers.filter((server) => server.available).length == 0) {
+	while (servers.filter(server => server.available).length == 0) {
 		// wait until a server is available
-		await new Promise((res) => setTimeout(res, 1000));
+		await new Promise(res => setTimeout(res, 1000));
 	}
 
 	let error = null;
@@ -80,10 +75,8 @@ async function makeRequest(path, method, data) {
 			url.pathname += path;
 			log(LogLevel.Debug, `Making request to ${url}`);
 			const result = await axios({
-				method,
-				url,
-				data,
-				responseType: "text",
+				method, url, data,
+				responseType: "text"
 			});
 			servers[i].available = true;
 			return result.data;
@@ -100,11 +93,9 @@ async function makeRequest(path, method, data) {
 }
 
 async function makeStableDiffusionRequest(path, method, data) {
-	while (
-		stableDiffusionServers.filter((server) => server.available).length == 0
-	) {
+	while (stableDiffusionServers.filter(server => server.available).length == 0) {
 		// wait until a server is available
-		await new Promise((res) => setTimeout(res, 1000));
+		await new Promise(res => setTimeout(res, 1000));
 	}
 
 	let error = null;
@@ -127,9 +118,7 @@ async function makeStableDiffusionRequest(path, method, data) {
 			url.pathname += path;
 			log(LogLevel.Debug, `Making stable diffusion request to ${url}`);
 			const result = await axios({
-				method,
-				url,
-				data,
+				method, url, data
 			});
 			stableDiffusionServers[i].available = true;
 			return result.data;
@@ -151,7 +140,7 @@ const client = new Client({
 		GatewayIntentBits.GuildMessages,
 		GatewayIntentBits.GuildMembers,
 		GatewayIntentBits.DirectMessages,
-		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.MessageContent
 	],
 	allowedMentions: { users: [], roles: [], repliedUser: false },
 	partials: [Partials.Channel],
@@ -199,10 +188,7 @@ function splitText(str, length) {
 				// append up all but last paragraph
 				const beforeParagraph = segment.match(/^.*\n/s);
 				if (beforeParagraph != null) {
-					const lastParagraph = segment.substring(
-						beforeParagraph[0].length,
-						segment.length
-					);
+					const lastParagraph = segment.substring(beforeParagraph[0].length, segment.length);
 					segment = beforeParagraph[0];
 					appendSegment();
 					segment = lastParagraph;
@@ -233,40 +219,31 @@ function getBoolean(str) {
 
 function parseJSONMessage(str) {
 	return str
-		.split(/[\r\n]+/g)
-		.map(function (line) {
+		.split(/[\r\n]+/g).map(line => {
 			const result = JSON.parse(`"${line}"`);
 			if (typeof result !== "string") throw new "Invalid syntax in .env file"();
 			return result;
-		})
-		.join("\n");
+		}).join("\n");
 }
 
 function parseEnvString(str) {
-	return typeof str === "string"
-		? parseJSONMessage(str).replace(/<date>/gi, new Date().toUTCString())
-		: null;
+	return typeof str === "string" ?
+		parseJSONMessage(str).replace(/<date>/gi, new Date().toUTCString()) : null;
 }
 
 const customSystemMessage = parseEnvString(process.env.SYSTEM);
-const useCustomSystemMessage =
-	getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
+const useCustomSystemMessage = getBoolean(process.env.USE_SYSTEM) && !!customSystemMessage;
 const useModelSystemMessage = getBoolean(process.env.USE_MODEL_SYSTEM);
-const showStartOfConversation = getBoolean(
-	process.env.SHOW_START_OF_CONVERSATION
-);
+const showStartOfConversation = getBoolean(process.env.SHOW_START_OF_CONVERSATION);
 const randomServer = getBoolean(process.env.RANDOM_SERVER);
 let modelInfo = null;
 const initialPrompt = parseEnvString(process.env.INITIAL_PROMPT);
-const useInitialPrompt =
-	getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
+const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initialPrompt;
 
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
 async function replySplitMessage(replyMessage, content) {
-	const responseMessages = splitText(content, 2000).map((content) => ({
-		content,
-	}));
+	const responseMessages = splitText(content, 2000).map(content => ({ content }));
 
 	const replyMessages = [];
 	for (let i = 0; i < responseMessages.length; ++i) {
@@ -279,7 +256,7 @@ async function replySplitMessage(replyMessage, content) {
 	return replyMessages;
 }
 
-client.on(Events.MessageCreate, async (message) => {
+client.on(Events.MessageCreate, async message => {
 	let typing = false;
 	try {
 		await message.fetch();
@@ -293,10 +270,7 @@ client.on(Events.MessageCreate, async (message) => {
 		if (message.author.bot || message.author.id == client.user.id) return;
 
 		const botRole = message.guild?.members?.me?.roles?.botRole;
-		const myMention = new RegExp(
-			`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`,
-			"g"
-		); // RegExp to match a mention for the bot
+		const myMention = new RegExp(`<@((!?${client.user.id}${botRole ? `)|(&${botRole.id}` : ""}))>`, "g"); // RegExp to match a mention for the bot
 
 		if (typeof message.content !== "string" || message.content.length == 0) {
 			return;
@@ -315,12 +289,11 @@ client.on(Events.MessageCreate, async (message) => {
 
 		// fetch info about the model like the template and system message
 		if (modelInfo == null) {
-			modelInfo = await makeRequest("/api/show", "post", {
-				name: model,
-			});
+			modelInfo = (await makeRequest("/api/show", "post", {
+				name: model
+			}));
 			if (typeof modelInfo === "string") modelInfo = JSON.parse(modelInfo);
-			if (typeof modelInfo !== "object")
-				throw "failed to fetch model information";
+			if (typeof modelInfo !== "object") throw "failed to fetch model information";
 		}
 
 		const systemMessages = [];
@@ -338,8 +311,7 @@ client.on(Events.MessageCreate, async (message) => {
 
 		// deal with commands first before passing to LLM
 		let userInput = message.content
-			.replace(new RegExp("^s*" + myMention.source, ""), "")
-			.trim();
+			.replace(new RegExp("^s*" + myMention.source, ""), "").trim();
 
 		// may change this to slash commands in the future
 		// i'm using regular text commands currently because the bot interacts with text content anyway
@@ -357,9 +329,7 @@ client.on(Events.MessageCreate, async (message) => {
 						delete messages[channelID];
 
 						if (cleared > 0) {
-							await message.reply({
-								content: `Cleared conversation of ${cleared} messages`,
-							});
+							await message.reply({ content: `Cleared conversation of ${cleared} messages` });
 							break;
 						}
 					}
@@ -368,21 +338,15 @@ client.on(Events.MessageCreate, async (message) => {
 				case "help":
 				case "?":
 				case "h":
-					await message.reply({
-						content:
-							"Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`\nSlash commands:\n- `/text2img`",
-					});
+					await message.reply({ content: "Commands:\n- `.reset` `.clear`\n- `.help` `.?` `.h`\n- `.ping`\n- `.model`\n- `.system`" });
 					break;
 				case "model":
 					await message.reply({
-						content: `Current model: ${model}`,
+						content: `Current model: ${model}`
 					});
 					break;
 				case "system":
-					await replySplitMessage(
-						message,
-						`System message:\n\n${systemMessage}`
-					);
+					await replySplitMessage(message, `System message:\n\n${systemMessage}`);
 					break;
 				case "ping":
 					// get ms difference
@@ -395,21 +359,13 @@ client.on(Events.MessageCreate, async (message) => {
 				case "":
 					break;
 				default:
-					await message.reply({
-						content: "Unknown command, type `.help` for a list of commands",
-					});
+					await message.reply({ content: "Unknown command, type `.help` for a list of commands" });
 					break;
 			}
 			return;
 		}
 
-		if (
-			message.type == MessageType.Default &&
-			requiresMention &&
-			message.guild &&
-			!message.content.match(myMention)
-		)
-			return;
+		if (message.type == MessageType.Default && (requiresMention && message.guild && !message.content.match(myMention))) return;
 
 		if (message.guild) {
 			await message.guild.channels.fetch();
@@ -446,12 +402,7 @@ client.on(Events.MessageCreate, async (message) => {
 		}
 
 		// log user's message
-		log(
-			LogLevel.Debug,
-			`${message.guild ? `#${message.channel.name}` : "DMs"} - ${
-				message.author.username
-			}: ${userInput}`
-		);
+		log(LogLevel.Debug, `${message.guild ? `#${message.channel.name}` : "DMs"} - ${message.author.username}: ${userInput}`);
 
 		// start typing
 		typing = true;
@@ -480,26 +431,21 @@ client.on(Events.MessageCreate, async (message) => {
 			}
 
 			// make request to model
-			response = await makeRequest("/api/generate", "post", {
+			response = (await makeRequest("/api/generate", "post", {
 				model: model,
 				prompt: userInput,
 				system: systemMessage,
-				context,
-			});
+				context
+			}));
 
 			if (typeof response != "string") {
 				log(LogLevel.Debug, response);
-				throw new TypeError(
-					"response is not a string, this may be an error with ollama"
-				);
+				throw new TypeError("response is not a string, this may be an error with ollama");
 			}
 
-			response = response
-				.split("\n")
-				.filter((e) => !!e)
-				.map((e) => {
-					return JSON.parse(e);
-				});
+			response = response.split("\n").filter(e => !!e).map(e => {
+				return JSON.parse(e);
+			});
 		} catch (error) {
 			if (typingInterval != null) {
 				clearInterval(typingInterval);
@@ -513,29 +459,21 @@ client.on(Events.MessageCreate, async (message) => {
 		}
 		typingInterval = null;
 
-		let responseText = response
-			.map((e) => e.response)
-			.filter((e) => e != null)
-			.join("")
-			.trim();
+		let responseText = response.map(e => e.response).filter(e => e != null).join("").trim();
 		if (responseText.length == 0) {
 			responseText = "(No response)";
 		}
 
 		log(LogLevel.Debug, `Response: ${responseText}`);
 
-		const prefix =
-			showStartOfConversation && messages[channelID].amount == 0
-				? "> This is the beginning of the conversation, type `.help` for help.\n\n"
-				: "";
+		const prefix = showStartOfConversation && messages[channelID].amount == 0 ?
+			"> This is the beginning of the conversation, type `.help` for help.\n\n" : "";
 
 		// reply (will automatically stop typing)
-		const replyMessageIDs = (
-			await replySplitMessage(message, `${prefix}${responseText}`)
-		).map((msg) => msg.id);
+		const replyMessageIDs = (await replySplitMessage(message, `${prefix}${responseText}`)).map(msg => msg.id);
 
 		// add response to conversation
-		context = response.filter((e) => e.done && e.context)[0].context;
+		context = response.filter(e => e.done && e.context)[0].context;
 		for (let i = 0; i < replyMessageIDs.length; ++i) {
 			messages[channelID][replyMessageIDs[i]] = context;
 		}
