@@ -29,7 +29,7 @@ process.on("message", data => {
 	if (data.logger) log = new Logger(data.logger);
 });
 
-const logError = error => {
+const logError = (error) => {
 	if (error.response) {
 		let str = `Error ${error.response.status} ${error.response.statusText}: ${error.request.method} ${error.request.path}`;
 		if (error.response.data?.error) {
@@ -143,7 +143,9 @@ const client = new Client({
 		GatewayIntentBits.MessageContent
 	],
 	allowedMentions: { users: [], roles: [], repliedUser: false },
-	partials: [Partials.Channel],
+	partials: [
+		Partials.Channel
+	]
 });
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -164,8 +166,7 @@ const messages = {};
 function splitText(str, length) {
 	// trim matches different characters to \s
 	str = str
-		.replace(/\r\n/g, "\n")
-		.replace(/\r/g, "\n")
+		.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
 		.replace(/^\s+|\s+$/g, "");
 	const segments = [];
 	let segment = "";
@@ -311,7 +312,7 @@ client.on(Events.MessageCreate, async message => {
 
 		// deal with commands first before passing to LLM
 		let userInput = message.content
-			.replace(new RegExp("^s*" + myMention.source, ""), "").trim();
+			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
 
 		// may change this to slash commands in the future
 		// i'm using regular text commands currently because the bot interacts with text content anyway
