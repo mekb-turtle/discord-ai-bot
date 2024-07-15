@@ -52,4 +52,5 @@ const text2img = new SlashCommandBuilder()
 			.setDescription("Enhance prompt")
 			.setRequired(false)
 	);
+
 export default text2img;
