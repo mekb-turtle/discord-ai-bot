@@ -153,7 +153,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 client.once(Events.ClientReady, async () => {
 	await client.guilds.fetch();
 	client.user.setPresence({ activities: [], status: "online" });
-	await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
+	await rest.put(Routes.applicationCommands(client.user.id), {
 		body: commands,
 	});
 
