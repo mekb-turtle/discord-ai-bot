@@ -1,6 +1,6 @@
 <div align="center">
     <h1><a href="#"></a>Discord AI Bot</h1>
-    <h3 align="center"><a href="#"></a>Discord bot to interact with <a href="https://github.com/jmorganca/ollama">Ollama</a> as a chatbot</h3>
+    <h3 align="center"><a href="#"></a>Discord bot to interact with <a href="https://github.com/jmorganca/ollama">Ollama</a> and <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui">AUTOMATIC1111 Stable Diffusion</a> as a chatbot</h3>
     <h3><a href="#"></a><img alt="Stars" src="https://img.shields.io/github/stars/mekb-turtle/discord-ai-bot?display_name=tag&style=for-the-badge" /></h3>
     <h3><a href="#"></a><img alt="Discord chat with the bot" src="assets/screenshot.png" /></h3>
 </div>
@@ -34,6 +34,8 @@ I have decided to archive this project as I no longer have the time to maintain 
     - You can edit the system message the bot uses, or disable it entirely
 8. Start the bot with `npm start`
 9. You can interact with the bot by @mentioning it with your message
+10. Install <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui">Stable Diffusion</a>
+11. Run the script `./webui.sh --api --listen`
 
 ### Set-up instructions with Docker
 1. Install [Docker](https://docs.docker.com/get-docker/)
