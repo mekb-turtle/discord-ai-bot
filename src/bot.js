@@ -494,18 +494,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	if (!interaction.isCommand()) return;
 
 	const { commandName, options } = interaction;
-	const prompt = options.getString("prompt");
-	const width = options.getNumber("width") || 256;
-	const height = options.getNumber("height") || 256;
-	const steps = options.getNumber("steps") || 10;
-	const batch_count = options.getNumber("batch_count") || 1;
-	const batch_size = options.getNumber("batch_size") || 1;
-	const enhance_prompt =
-		options.getBoolean("enhance_prompt") || true ? "yes" : "no";
 
 	switch (commandName) {
 		case "text2img":
 			try {
+				const prompt = options.getString("prompt");
+				const width = options.getNumber("width") || 256;
+				const height = options.getNumber("height") || 256;
+				const steps = options.getNumber("steps") || 10;
+				const batch_count = options.getNumber("batch_count") || 1;
+				const batch_size = options.getNumber("batch_size") || 1;
+				const enhance_prompt = (options.getBoolean("enhance_prompt") || true) ? "yes" : "no";
+
 				await interaction.deferReply();
 				let stableDiffusionResponse = await makeStableDiffusionRequest(
 					"/sdapi/v1/txt2img",
