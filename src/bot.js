@@ -350,11 +350,16 @@ client.on(Events.MessageCreate, async message => {
 					break;
 				case "ping":
 					// get ms difference
-					const beforeTime = Date.now();
-					const reply = await message.reply({ content: "Ping" });
-					const afterTime = Date.now();
-					const difference = afterTime - beforeTime;
-					await reply.edit({ content: `Ping: ${difference}ms` });
+					try {
+						const beforeTime = Date.now();
+						const reply = await message.reply({ content: "Ping" });
+						const afterTime = Date.now();
+						const difference = afterTime - beforeTime;
+						await reply.edit({ content: `Ping: ${difference}ms` });
+					} catch (error) {
+						logError(error);
+						await message.reply({ content: "Error, please check the console" });
+					}
 					break;
 				case "":
 					break;
