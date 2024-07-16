@@ -1,12 +1,22 @@
-import { Client, Events, GatewayIntentBits, MessageType, Partials } from "discord.js";
+import {
+	Client,
+	Events,
+	GatewayIntentBits,
+	MessageType,
+	Partials,
+	REST,
+	Routes,
+} from "discord.js";
 import { Logger, LogLevel } from "meklog";
 import dotenv from "dotenv";
 import axios from "axios";
+import commands from "./commands/commands.js";
 
 dotenv.config();
 
 const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
+const stableDiffusionServers = process.env.STABLE_DIFFUSION.split(",").map( url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 
 if (servers.length == 0) {
@@ -82,6 +92,48 @@ async function makeRequest(path, method, data) {
 	throw error;
 }
 
+async function makeStableDiffusionRequest(path, method, data) {
+	while (stableDiffusionServers.filter(server => server.available).length == 0) {
+		// wait until a server is available
+		await new Promise(res => setTimeout(res, 1000));
+	}
+
+	let error = null;
+	// randomly loop through the servers available, don't shuffle the actual array because we want to be notified of any updates
+	let order = new Array(stableDiffusionServers.length).fill().map((_, i) => i);
+	if (randomServer) order = shuffleArray(order);
+	for (const j in order) {
+		if (!order.hasOwnProperty(j)) continue;
+		const i = order[j];
+		// try one until it succeeds
+		try {
+			// make a request to stable diffusion
+			if (!stableDiffusionServers[i].available) continue;
+			const url = new URL(stableDiffusionServers[i].url); // don't modify the original URL
+
+			stableDiffusionServers[i].available = false;
+
+			if (path.startsWith("/")) path = path.substring(1);
+			if (!url.pathname.endsWith("/")) url.pathname += "/"; // safety
+			url.pathname += path;
+			log(LogLevel.Debug, `Making stable diffusion request to ${url}`);
+			const result = await axios({
+				method, url, data
+			});
+			stableDiffusionServers[i].available = true;
+			return result.data;
+		} catch (err) {
+			stableDiffusionServers[i].available = true;
+			error = err;
+			logError(error);
+		}
+	}
+	if (!error) {
+		throw new Error("No servers available");
+	}
+	throw error;
+}
+
 const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -96,9 +148,16 @@ const client = new Client({
 	]
 });
 
+const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+
 client.once(Events.ClientReady, async () => {
 	await client.guilds.fetch();
 	client.user.setPresence({ activities: [], status: "online" });
+	await rest.put(Routes.applicationCommands(client.user.id), {
+		body: commands,
+	});
+
+	log(LogLevel.Info, "Successfully reloaded application slash (/) commands.");
 });
 
 const messages = {};
@@ -160,7 +219,7 @@ function getBoolean(str) {
 }
 
 function parseJSONMessage(str) {
-	return str.split(/[\r\n]+/g).map(function(line) {
+	return str.split(/[\r\n]+/g).map(line => {
 		const result = JSON.parse(`"${line}"`);
 		if (typeof result !== "string") throw new "Invalid syntax in .env file";
 		return result;
@@ -428,6 +487,54 @@ client.on(Events.MessageCreate, async message => {
 			} catch (ignored) {}
 		}
 		logError(error);
+	}
+});
+
+client.on(Events.InteractionCreate, async (interaction) => {
+	if (!interaction.isCommand()) return;
+
+	const { commandName, options } = interaction;
+
+	switch (commandName) {
+		case "text2img":
+			try {
+				const prompt = options.getString("prompt");
+				const width = options.getNumber("width") || 256;
+				const height = options.getNumber("height") || 256;
+				const steps = options.getNumber("steps") || 10;
+				const batch_count = options.getNumber("batch_count") || 1;
+				const batch_size = options.getNumber("batch_size") || 1;
+				const enhance_prompt = (options.getBoolean("enhance_prompt") || true) ? "yes" : "no";
+
+				await interaction.deferReply();
+				let stableDiffusionResponse = await makeStableDiffusionRequest(
+					"/sdapi/v1/txt2img",
+					"post",
+					{
+						prompt,
+						width,
+						height,
+						steps,
+						num_inference_steps: steps,
+						batch_count,
+						batch_size,
+						enhance_prompt,
+					}
+				);
+				const images = stableDiffusionResponse.images.map((image) =>
+					Buffer.from(image, "base64")
+				);
+				await interaction.editReply({
+					content: `Here are images from prompt \`${prompt}\``,
+					files: images,
+				});
+			} catch (error) {
+				logError(error);
+				await interaction.editReply({
+					content: "Error, please check the console",
+				});
+			}
+			break;
 	}
 });
 
