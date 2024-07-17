@@ -5,7 +5,7 @@ import {
 	MessageType,
 	Partials,
 	REST,
-	Routes,
+	Routes
 } from "discord.js";
 import { Logger, LogLevel } from "meklog";
 import dotenv from "dotenv";
@@ -16,7 +16,7 @@ dotenv.config();
 
 const model = process.env.MODEL;
 const servers = process.env.OLLAMA.split(",").map(url => ({ url: new URL(url), available: true }));
-const stableDiffusionServers = process.env.STABLE_DIFFUSION.split(",").map( url => ({ url: new URL(url), available: true }));
+const stableDiffusionServers = process.env.STABLE_DIFFUSION.split(",").map(url => ({ url: new URL(url), available: true }));
 const channels = process.env.CHANNELS.split(",");
 
 if (servers.length == 0) {
@@ -154,7 +154,7 @@ client.once(Events.ClientReady, async () => {
 	await client.guilds.fetch();
 	client.user.setPresence({ activities: [], status: "online" });
 	await rest.put(Routes.applicationCommands(client.user.id), {
-		body: commands,
+		body: commands
 	});
 
 	log(LogLevel.Info, "Successfully reloaded application slash (/) commands.");
@@ -243,7 +243,7 @@ const useInitialPrompt = getBoolean(process.env.USE_INITIAL_PROMPT) && !!initial
 const requiresMention = getBoolean(process.env.REQUIRES_MENTION);
 
 async function replySplitMessage(replyMessage, content) {
-	const responseMessages = splitText(content, 2000).map(content => ({ content }));
+	const responseMessages = splitText(content, 2000).map(text => ({ content: text }));
 
 	const replyMessages = [];
 	for (let i = 0; i < responseMessages.length; ++i) {
@@ -311,7 +311,7 @@ client.on(Events.MessageCreate, async message => {
 
 		// deal with commands first before passing to LLM
 		let userInput = message.content
-			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
+			.replace(new RegExp("^s*" + myMention.source, ""), "").trim();
 
 		// may change this to slash commands in the future
 		// i'm using regular text commands currently because the bot interacts with text content anyway
@@ -350,11 +350,16 @@ client.on(Events.MessageCreate, async message => {
 					break;
 				case "ping":
 					// get ms difference
-					const beforeTime = Date.now();
-					const reply = await message.reply({ content: "Ping" });
-					const afterTime = Date.now();
-					const difference = afterTime - beforeTime;
-					await reply.edit({ content: `Ping: ${difference}ms` });
+					try {
+						const beforeTime = Date.now();
+						const reply = await message.reply({ content: "Ping" });
+						const afterTime = Date.now();
+						const difference = afterTime - beforeTime;
+						await reply.edit({ content: `Ping: ${difference}ms` });
+					} catch (error) {
+						logError(error);
+						await message.reply({ content: "Error, please check the console" });
+					}
 					break;
 				case "":
 					break;
@@ -411,6 +416,7 @@ client.on(Events.MessageCreate, async message => {
 			try {
 				await message.channel.sendTyping();
 			} catch (error) {
+				logError(error);
 				if (typingInterval != null) {
 					clearInterval(typingInterval);
 				}
@@ -484,7 +490,9 @@ client.on(Events.MessageCreate, async message => {
 			try {
 				// return error
 				await message.reply({ content: "Error, please check the console" });
-			} catch (ignored) {}
+			} catch (ignored) {
+				logError(ignored);
+			}
 		}
 		logError(error);
 	}
@@ -504,10 +512,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				const steps = options.getNumber("steps") || 10;
 				const batch_count = options.getNumber("batch_count") || 1;
 				const batch_size = options.getNumber("batch_size") || 1;
-				const enhance_prompt = (options.getBoolean("enhance_prompt") || true) ? "yes" : "no";
+				const enhance_prompt = (options.getBoolean("enhance_prompt") && true) ? "yes" : "no";
 
 				await interaction.deferReply();
-				let stableDiffusionResponse = await makeStableDiffusionRequest(
+				const stableDiffusionResponse = await makeStableDiffusionRequest(
 					"/sdapi/v1/txt2img",
 					"post",
 					{
@@ -518,7 +526,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 						num_inference_steps: steps,
 						batch_count,
 						batch_size,
-						enhance_prompt,
+						enhance_prompt
 					}
 				);
 				const images = stableDiffusionResponse.images.map((image) =>
@@ -526,12 +534,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				);
 				await interaction.editReply({
 					content: `Here are images from prompt \`${prompt}\``,
-					files: images,
+					files: images
 				});
 			} catch (error) {
 				logError(error);
 				await interaction.editReply({
-					content: "Error, please check the console",
+					content: "Error, please check the console"
 				});
 			}
 			break;
