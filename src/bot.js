@@ -401,6 +401,23 @@ client.on(Events.MessageCreate, async message => {
 
 		if (userInput.length == 0) return;
 
+		// Process text files if attached
+		if (message.attachments.size > 0) {
+			const textAttachments = Array.from(message.attachments, ([, value]) => value).filter(att => att.contentType.startsWith("text"));
+			if (textAttachments.length > 0) {
+				try {
+					await Promise.all(textAttachments.map(async (att, i) => {
+						const response = await axios.get(att.url);
+						userInput += `\n${i + 1}. File - ${att.name}:\n${response.data}`;
+					}));
+				} catch (error) {
+					log(LogLevel.Error, `Failed to download text files: ${error}`);
+					await message.reply({ content: "Failed to download text files" });
+					return; // Stop processing if file download fails
+				}
+			}
+		}
+
 		// create conversation
 		if (messages[channelID] == null) {
 			messages[channelID] = { amount: 0, last: null };
