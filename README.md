@@ -5,8 +5,8 @@
     <h3><a href="#"></a><img alt="Discord chat with the bot" src="assets/screenshot.png" /></h3>
 </div>
 
-### Archived
-I have decided to archive this project as I no longer have the time to maintain it. If you would like to take over the project, [please let me know](https://github.com/mekb-turtle).
+### New Maintainer
+This repository is no longer being developed on by me, [mekb-turtle](https://github.com/mekb-turtle).
 
 ### Set-up instructions
 1. Install [Node.js](https://nodejs.org) (if you have a package manager, use that instead to install this)
@@ -32,10 +32,11 @@ I have decided to archive this project as I no longer have the time to maintain 
         1. In Discord, go to User Settings » Advanced, and enable Developer Mode
         2. Right click on a channel you want to use, and click Copy Channel ID
     - You can edit the system message the bot uses, or disable it entirely
-8. Start the bot with `npm start`
-9. You can interact with the bot by @mentioning it with your message
-10. Install <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui">Stable Diffusion</a>
-11. Run the script `./webui.sh --api --listen`
+8. Install the required dependencies with `npm i`
+0. Start the bot with `npm start`
+10. You can interact with the bot by @mentioning it with your message
+11. Install <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui">Stable Diffusion</a>
+12. Run the script `./webui.sh --api --listen`
 
 ### Set-up instructions with Docker
 1. Install [Docker](https://docs.docker.com/get-docker/)
