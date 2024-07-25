@@ -254,23 +254,6 @@ client.on(Events.MessageCreate, async message => {
 		let userInput = message.content
 			.replace(new RegExp("^\s*" + myMention.source, ""), "").trim();
 
-		// Process text files if attached
-		if (message.attachments.size > 0) {
-			const textAttachments = Array.from(message.attachments, ([, value]) => value).filter(att => att.contentType.startsWith("text"));
-			if (textAttachments.length > 0) {
-				userInput = `${message.content}`;
-				try {
-					await Promise.all(textAttachments.map(async (att, i) => {
-						const response = await axios.get(att.url);
-						userInput += `\n${i + 1}. File - ${att.name}:\n${response.data}`;
-					}));
-				} catch (error) {
-					log(LogLevel.Error, `Failed to download text files: ${error}`);
-					return; // Stop processing if file download fails
-				}
-			}
-		}
-
 		// may change this to slash commands in the future
 		// i'm using regular text commands currently because the bot interacts with text content anyway
 		if (userInput.startsWith(".")) {
@@ -353,6 +336,23 @@ client.on(Events.MessageCreate, async message => {
 			.trim();
 
 		if (userInput.length == 0) return;
+
+		// Process text files if attached
+		if (message.attachments.size > 0) {
+			const textAttachments = Array.from(message.attachments, ([, value]) => value).filter(att => att.contentType.startsWith("text"));
+			if (textAttachments.length > 0) {
+				try {
+					await Promise.all(textAttachments.map(async (att, i) => {
+						const response = await axios.get(att.url);
+						userInput += `\n${i + 1}. File - ${att.name}:\n${response.data}`;
+					}));
+				} catch (error) {
+					log(LogLevel.Error, `Failed to download text files: ${error}`);
+					await message.reply({ content: "Failed to download text files" });
+					return; // Stop processing if file download fails
+				}
+			}
+		}
 
 		// create conversation
 		if (messages[channelID] == null) {
