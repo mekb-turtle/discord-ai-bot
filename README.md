@@ -5,9 +5,6 @@
     <h3><a href="#"></a><img alt="Discord chat with the bot" src="assets/screenshot.png" /></h3>
 </div>
 
-### New Maintainer
-This repository is no longer being developed on by me, [mekb-turtle](https://github.com/mekb-turtle).
-
 ### Set-up instructions
 1. Install [Node.js](https://nodejs.org) (if you have a package manager, use that instead to install this)
     - Make sure to install at least v14 of Node.js
